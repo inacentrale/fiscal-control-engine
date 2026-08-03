@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: bank-files-harmonizer-api
+Version: 0.1.0
+Summary: API FastAPI pour l'agent de revue fiscale pre-declaratif.
+Requires-Python: >=3.12
+Requires-Dist: fastapi>=0.116.0
+Requires-Dist: httpx>=0.28.0
+Requires-Dist: openpyxl>=3.1.0
+Requires-Dist: pandas>=2.2.0
+Requires-Dist: pydantic-settings>=2.10.0
+Requires-Dist: python-multipart>=0.0.20
+Requires-Dist: uvicorn[standard]>=0.35.0
+Provides-Extra: dev
+Requires-Dist: mypy<2.0,>=1.16.0; extra == "dev"
+Requires-Dist: pytest>=8.4.0; extra == "dev"
+Requires-Dist: ruff>=0.12.0; extra == "dev"
+Provides-Extra: embeddings
+Requires-Dist: sentence-transformers>=3.0.0; extra == "embeddings"

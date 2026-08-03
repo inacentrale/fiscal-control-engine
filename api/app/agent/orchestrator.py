@@ -1,0 +1,1007 @@
+import json
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from time import monotonic
+from typing import Protocol
+
+from app.agent.answer_policy import AgentAnswerPolicy
+from app.agent.constants import AGENT_RUN_TIMEOUT_ANSWER
+from app.agent.tool_router import (
+    DeterministicToolRouteRequest,
+    route_deterministic_tool_calls,
+)
+from app.excel_agent.domain import ToolExecutionResult
+from app.excel_agent.tool_executor import ExcelToolExecutor
+from app.llm.domain import (
+    ModelMessage,
+    ModelProvider,
+    ModelRequest,
+    ModelResponse,
+    ModelToolDefinition,
+    ToolCall,
+)
+
+
+@dataclass(frozen=True)
+class AgentRunEvent:
+    event_type: str
+    title: str
+    message: str
+    status: str
+    tool_name: str | None = None
+    provider_name: str | None = None
+    model_name: str | None = None
+
+
+@dataclass(frozen=True)
+class AgentRunRequest:
+    user_message: str
+    file_path: Path | None
+    sheet_name: str | None
+    allowed_tools: tuple[str, ...]
+    direct_tool_call: ToolCall | None = None
+
+
+@dataclass(frozen=True)
+class AgentRunResult:
+    answer: str
+    provider_name: str
+    model_name: str
+    execution_events: tuple[AgentRunEvent, ...]
+    tool_results: tuple[ToolExecutionResult, ...]
+
+
+class ToolExecutor(Protocol):
+    def execute(self, tool_call: ToolCall) -> ToolExecutionResult:
+        pass
+
+
+class AgentOrchestrator:
+    def __init__(
+        self,
+        model_provider: ModelProvider,
+        tool_executor: ExcelToolExecutor,
+        max_tool_calls: int = 5,
+        max_answer_characters: int = 4_000,
+        max_run_seconds: float = 60.0,
+        monotonic: Callable[[], float] = monotonic,
+    ) -> None:
+        if max_tool_calls < 1:
+            raise ValueError("max_tool_calls must be positive")
+        if max_run_seconds <= 0:
+            raise ValueError("max_run_seconds must be positive")
+        self._model_provider = model_provider
+        self._tool_executor = tool_executor
+        self._max_tool_calls = max_tool_calls
+        self._max_run_seconds = max_run_seconds
+        self._monotonic = monotonic
+        self._answer_policy = AgentAnswerPolicy(
+            max_answer_characters=max_answer_characters,
+        )
+
+    def run(
+        self,
+        request: AgentRunRequest,
+        event_sink: Callable[[AgentRunEvent], None] | None = None,
+    ) -> AgentRunResult:
+        started_at = self._monotonic()
+        events: list[AgentRunEvent] = []
+
+        def emit(event: AgentRunEvent) -> None:
+            events.append(event)
+            if event_sink is not None:
+                event_sink(event)
+
+        emit(
+            AgentRunEvent(
+                event_type="run_started",
+                title="Demande reçue",
+                message="Demande prise en compte.",
+                status="completed",
+            ),
+        )
+        if request.file_path is not None:
+            emit(
+                AgentRunEvent(
+                    event_type="file_checked",
+                    title="Fichier disponible",
+                    message="Fichier prêt pour l'analyse.",
+                    status="completed",
+                ),
+            )
+        if request.direct_tool_call is not None:
+            emit(_tool_started_event(request.direct_tool_call.name))
+            tool_result = self._execute_allowed_tool_call(
+                request.direct_tool_call,
+                request,
+            )
+            emit(_tool_finished_event(tool_result))
+            answer = (
+                "L'analyse déterministe du Grand Livre est terminée."
+                if tool_result.ok
+                else "L'analyse déterministe du Grand Livre a échoué."
+            )
+            emit(
+                AgentRunEvent(
+                    event_type="answer_ready",
+                    title="Réponse prête",
+                    message="Réponse prête.",
+                    status="completed",
+                    provider_name="internal",
+                    model_name="direct-tool-call",
+                ),
+            )
+            return AgentRunResult(
+                answer=answer,
+                provider_name="internal",
+                model_name="direct-tool-call",
+                execution_events=tuple(events),
+                tool_results=(tool_result,),
+            )
+        routed_tool_calls = route_deterministic_tool_calls(
+            DeterministicToolRouteRequest(
+                user_message=request.user_message,
+                file_path=request.file_path,
+                sheet_name=request.sheet_name,
+                allowed_tools=request.allowed_tools,
+            ),
+        )
+        if routed_tool_calls:
+            stable_tool_results = self._execute_tool_calls(
+                tool_calls=routed_tool_calls[: self._max_tool_calls],
+                request=request,
+                emit=emit,
+                provider_name="internal",
+                model_name="deterministic-tool-router",
+            )
+            if self._has_timed_out(started_at):
+                return _timeout_result(tuple(events))
+            if any(not result.ok for result in stable_tool_results):
+                emit(
+                    AgentRunEvent(
+                        event_type="run_failed",
+                        title="Analyse arrêtée",
+                        message="L'analyse demandée ne peut pas être exécutée.",
+                        status="error",
+                        provider_name="internal",
+                        model_name="deterministic-tool-router",
+                    ),
+                )
+                return AgentRunResult(
+                    answer="Le tool call a ete refuse par les garde-fous.",
+                    provider_name="internal",
+                    model_name="deterministic-tool-router",
+                    execution_events=tuple(events),
+                    tool_results=stable_tool_results,
+                )
+            emit(
+                AgentRunEvent(
+                    event_type="model_requested",
+                    title="Réponse en cours",
+                    message="Préparation de la réponse.",
+                    status="running",
+                    provider_name=self._model_provider.provider_name,
+                ),
+            )
+            final_response = self._model_provider.generate(
+                _final_model_request(request, stable_tool_results),
+            )
+            _emit_fallback_if_needed(
+                provider_name=self._model_provider.provider_name,
+                response_provider_name=final_response.provider_name,
+                response_model_name=final_response.model_name,
+                emit=emit,
+            )
+            if self._has_timed_out(started_at):
+                return _timeout_result(tuple(events))
+            answer = _final_answer_from_model_or_tools(
+                final_response=final_response,
+                tool_results=stable_tool_results,
+                answer_policy=self._answer_policy,
+            )
+            emit(
+                AgentRunEvent(
+                    event_type="answer_ready",
+                    title="Réponse prête",
+                    message="Réponse prête.",
+                    status="completed",
+                    provider_name=final_response.provider_name,
+                    model_name=final_response.model_name,
+                ),
+            )
+            return AgentRunResult(
+                answer=answer,
+                provider_name=final_response.provider_name,
+                model_name=final_response.model_name,
+                execution_events=tuple(events),
+                tool_results=stable_tool_results,
+            )
+        initial_model_request = _initial_model_request(
+            request,
+            tool_definitions=self._tool_executor.get_model_tool_definitions(
+                request.allowed_tools,
+            ),
+        )
+        emit(
+            AgentRunEvent(
+                event_type="model_requested",
+                title="Contexte d'analyse",
+                message="Identification du contexte utile.",
+                status="running",
+                provider_name=self._model_provider.provider_name,
+            ),
+        )
+        initial_response = self._model_provider.generate(initial_model_request)
+        _emit_fallback_if_needed(
+            provider_name=self._model_provider.provider_name,
+            response_provider_name=initial_response.provider_name,
+            response_model_name=initial_response.model_name,
+            emit=emit,
+        )
+        if self._has_timed_out(started_at):
+            return _timeout_result(tuple(events))
+        if not initial_response.tool_calls:
+            deterministic_tool_call = _default_file_tool_call(request)
+            if deterministic_tool_call is not None:
+                emit(
+                    AgentRunEvent(
+                        event_type="tool_requested",
+                        title="Analyse préparée",
+                        message=(
+                            f"{_tool_user_label(deterministic_tool_call.name)} "
+                            "prête."
+                        ),
+                        status="completed",
+                        tool_name=deterministic_tool_call.name,
+                        provider_name=initial_response.provider_name,
+                        model_name=initial_response.model_name,
+                    ),
+                )
+                emit(_tool_started_event(deterministic_tool_call.name))
+                tool_result = self._execute_allowed_tool_call(
+                    deterministic_tool_call,
+                    request,
+                )
+                emit(_tool_finished_event(tool_result))
+                if not tool_result.ok:
+                    emit(
+                        AgentRunEvent(
+                            event_type="run_failed",
+                            title="Analyse arrêtée",
+                            message="L'analyse demandée ne peut pas être exécutée.",
+                            status="error",
+                            provider_name=initial_response.provider_name,
+                            model_name=initial_response.model_name,
+                        ),
+                    )
+                    return AgentRunResult(
+                        answer="Le tool call a ete refuse par les garde-fous.",
+                        provider_name=initial_response.provider_name,
+                        model_name=initial_response.model_name,
+                        execution_events=tuple(events),
+                        tool_results=(tool_result,),
+                    )
+                emit(
+                    AgentRunEvent(
+                        event_type="answer_ready",
+                        title="Réponse prête",
+                        message="Réponse prête.",
+                        status="completed",
+                        provider_name="internal",
+                        model_name="deterministic-excel-analysis",
+                    ),
+                )
+                return AgentRunResult(
+                    answer=_deterministic_tool_answer(tool_result),
+                    provider_name="internal",
+                    model_name="deterministic-excel-analysis",
+                    execution_events=tuple(events),
+                    tool_results=(tool_result,),
+                )
+            answer = self._answer_policy.apply(initial_response.text).answer
+            emit(
+                AgentRunEvent(
+                    event_type="answer_ready",
+                    title="Réponse prête",
+                    message="Réponse prête.",
+                    status="completed",
+                    provider_name=initial_response.provider_name,
+                    model_name=initial_response.model_name,
+                ),
+            )
+            return AgentRunResult(
+                answer=answer,
+                provider_name=initial_response.provider_name,
+                model_name=initial_response.model_name,
+                execution_events=tuple(events),
+                tool_results=(),
+            )
+
+        stable_tool_results = self._execute_tool_calls(
+            tool_calls=initial_response.tool_calls[: self._max_tool_calls],
+            request=request,
+            emit=emit,
+            provider_name=initial_response.provider_name,
+            model_name=initial_response.model_name,
+        )
+        if self._has_timed_out(started_at):
+            return _timeout_result(tuple(events))
+        if any(not result.ok for result in stable_tool_results):
+            emit(
+                AgentRunEvent(
+                    event_type="run_failed",
+                    title="Analyse arrêtée",
+                    message="L'analyse demandée ne peut pas être exécutée.",
+                    status="error",
+                    provider_name=initial_response.provider_name,
+                    model_name=initial_response.model_name,
+                ),
+            )
+            return AgentRunResult(
+                answer="Le tool call a ete refuse par les garde-fous.",
+                provider_name=initial_response.provider_name,
+                model_name=initial_response.model_name,
+                execution_events=tuple(events),
+                tool_results=stable_tool_results,
+            )
+
+        emit(
+            AgentRunEvent(
+                event_type="model_requested",
+                title="Réponse en cours",
+                message="Préparation de la réponse.",
+                status="running",
+                provider_name=self._model_provider.provider_name,
+            ),
+        )
+        final_response = self._model_provider.generate(
+            _final_model_request(request, stable_tool_results),
+        )
+        _emit_fallback_if_needed(
+            provider_name=self._model_provider.provider_name,
+            response_provider_name=final_response.provider_name,
+            response_model_name=final_response.model_name,
+            emit=emit,
+        )
+        if self._has_timed_out(started_at):
+            return _timeout_result(tuple(events))
+        answer = _final_answer_from_model_or_tools(
+            final_response=final_response,
+            tool_results=stable_tool_results,
+            answer_policy=self._answer_policy,
+        )
+        emit(
+            AgentRunEvent(
+                event_type="answer_ready",
+                title="Réponse prête",
+                message="Réponse prête.",
+                status="completed",
+                provider_name=final_response.provider_name,
+                model_name=final_response.model_name,
+            ),
+        )
+        return AgentRunResult(
+            answer=answer,
+            provider_name=final_response.provider_name,
+            model_name=final_response.model_name,
+            execution_events=tuple(events),
+            tool_results=stable_tool_results,
+        )
+
+    def _execute_allowed_tool_call(
+        self,
+        tool_call: ToolCall,
+        request: AgentRunRequest,
+    ) -> ToolExecutionResult:
+        if tool_call.name not in request.allowed_tools:
+            return ToolExecutionResult(
+                tool_name=tool_call.name,
+                ok=False,
+                output={},
+                error_code="tool_not_allowed",
+                error_message=f"tool is not allowed: {tool_call.name}",
+            )
+        return self._tool_executor.execute(tool_call)
+
+    def _has_timed_out(self, started_at: float) -> bool:
+        return self._monotonic() - started_at > self._max_run_seconds
+
+    def _execute_tool_calls(
+        self,
+        tool_calls: tuple[ToolCall, ...],
+        request: AgentRunRequest,
+        emit: Callable[[AgentRunEvent], None],
+        provider_name: str,
+        model_name: str,
+    ) -> tuple[ToolExecutionResult, ...]:
+        tool_results = []
+        for tool_call in tool_calls:
+            emit(
+                AgentRunEvent(
+                    event_type="tool_requested",
+                    title="Analyse préparée",
+                    message=f"{_tool_user_label(tool_call.name)} prête.",
+                    status="completed",
+                    tool_name=tool_call.name,
+                    provider_name=provider_name,
+                    model_name=model_name,
+                ),
+            )
+            emit(_tool_started_event(tool_call.name))
+            tool_result = self._execute_allowed_tool_call(
+                _with_request_context(tool_call, request),
+                request,
+            )
+            tool_results.append(tool_result)
+            emit(_tool_finished_event(tool_result))
+        return tuple(tool_results)
+
+
+def _timeout_result(events: tuple[AgentRunEvent, ...] = ()) -> AgentRunResult:
+    timeout_event = AgentRunEvent(
+        event_type="run_failed",
+        title="Temps dépassé",
+        message="L'analyse a dépassé le temps autorisé.",
+        status="error",
+        provider_name="internal",
+        model_name="timeout-guard",
+    )
+    return AgentRunResult(
+        answer=AGENT_RUN_TIMEOUT_ANSWER,
+        provider_name="internal",
+        model_name="timeout-guard",
+        execution_events=(*events, timeout_event),
+        tool_results=(),
+    )
+
+
+def _emit_fallback_if_needed(
+    provider_name: str,
+    response_provider_name: str,
+    response_model_name: str,
+    emit: Callable[[AgentRunEvent], None],
+) -> None:
+    if provider_name != "fallback":
+        return
+    if response_provider_name == provider_name:
+        return
+    emit(
+        AgentRunEvent(
+            event_type="fallback_used",
+            title="Moteur d'analyse disponible",
+            message="Connexion au moteur d'analyse.",
+            status="completed",
+            provider_name=response_provider_name,
+            model_name=response_model_name,
+        ),
+    )
+
+
+def _tool_started_event(tool_name: str) -> AgentRunEvent:
+    return AgentRunEvent(
+        event_type="tool_started",
+        title="Analyse du fichier",
+        message=f"{_tool_user_label(tool_name)} en cours.",
+        status="running",
+        tool_name=tool_name,
+    )
+
+
+def _tool_finished_event(tool_result: ToolExecutionResult) -> AgentRunEvent:
+    if not tool_result.ok:
+        return AgentRunEvent(
+            event_type="tool_finished",
+            title="Analyse arrêtée",
+            message="L'analyse demandée ne peut pas être exécutée.",
+            status="error",
+            tool_name=tool_result.tool_name,
+        )
+    return AgentRunEvent(
+        event_type="tool_finished",
+        title="Analyse terminée",
+        message=_tool_result_summary(tool_result),
+        status="completed",
+        tool_name=tool_result.tool_name,
+    )
+
+
+def _tool_user_label(tool_name: str) -> str:
+    labels = {
+        "list_sheets": "Lecture des feuilles",
+        "get_columns": "Lecture des colonnes",
+        "profile_sheet": "Analyse de la feuille Excel",
+        "classify_ledger_schema": "Identification du sens des colonnes",
+        "analyze_ledger": "Analyse du Grand Livre",
+        "aggregate_ledger": "Agrégation du Grand Livre",
+        "query_ledger_entries": "Recherche d'écritures",
+        "calculate_ledger_metrics": "Calcul de métriques",
+        "detect_data_quality_issues": "Contrôle qualité des données",
+        "detect_tax_candidates": "Détection des candidats fiscaux",
+    }
+    return labels.get(tool_name, "Analyse demandée")
+
+
+def _tool_result_summary(tool_result: ToolExecutionResult) -> str:
+    if tool_result.tool_name == "profile_sheet":
+        return _rows_columns_summary(
+            prefix="L'analyse de la feuille Excel est terminée",
+            output=tool_result.output,
+        )
+    if tool_result.tool_name == "classify_ledger_schema":
+        return "Le sens probable des colonnes a été identifié."
+    if tool_result.tool_name == "analyze_ledger":
+        return _rows_columns_summary(
+            prefix="L'analyse du Grand Livre est terminée",
+            output=tool_result.output,
+        )
+    if tool_result.tool_name == "aggregate_ledger":
+        aggregation_count = len(tool_result.output.get("aggregations", ()))
+        return f"{aggregation_count} regroupement(s) du Grand Livre préparé(s)."
+    if tool_result.tool_name == "query_ledger_entries":
+        total_matches = tool_result.output.get("total_matches")
+        entries = tool_result.output.get("entries", ())
+        if isinstance(total_matches, int) and isinstance(entries, list):
+            return (
+                f"{len(entries)} écriture(s) retournée(s) "
+                f"sur {total_matches} correspondance(s)."
+            )
+        return "La recherche d'écritures est terminée."
+    if tool_result.tool_name == "calculate_ledger_metrics":
+        total_matches = tool_result.output.get("total_matches")
+        if isinstance(total_matches, int):
+            return (
+                "Les métriques demandées sont calculées "
+                f"sur {total_matches} écriture(s)."
+            )
+        return "Les métriques demandées sont calculées."
+    if tool_result.tool_name == "detect_data_quality_issues":
+        issue_count = tool_result.output.get("issue_count")
+        if isinstance(issue_count, int):
+            return f"{issue_count} point(s) de qualité détecté(s)."
+        return "Le contrôle qualité des données est terminé."
+    if tool_result.tool_name == "detect_tax_candidates":
+        candidates = tool_result.output.get("candidates", ())
+        if isinstance(candidates, list):
+            return f"{len(candidates)} catégorie(s) candidate(s) à revoir."
+        return "La détection des candidats fiscaux est terminée."
+    if tool_result.tool_name == "list_sheets":
+        sheet_count = len(tool_result.output.get("sheet_names", ()))
+        return f"{sheet_count} feuille(s) détectée(s) dans le fichier."
+    if tool_result.tool_name == "get_columns":
+        column_count = len(tool_result.output.get("columns", ()))
+        return f"{column_count} colonne(s) détectée(s) dans la feuille."
+    return "L'analyse demandée est terminée."
+
+
+def _rows_columns_summary(prefix: str, output: dict[str, object]) -> str:
+    row_count = output.get("row_count")
+    column_count = output.get("column_count")
+    if isinstance(row_count, int) and isinstance(column_count, int):
+        return f"{prefix}: {row_count} lignes, {column_count} colonnes."
+    return f"{prefix}."
+
+
+def _default_file_tool_call(request: AgentRunRequest) -> ToolCall | None:
+    if request.file_path is None:
+        return None
+    if request.sheet_name is not None:
+        if "analyze_ledger" in request.allowed_tools:
+            return ToolCall(
+                name="analyze_ledger",
+                arguments={
+                    "file_path": str(request.file_path),
+                    "sheet_name": request.sheet_name,
+                },
+            )
+        if "profile_sheet" in request.allowed_tools:
+            return ToolCall(
+                name="profile_sheet",
+                arguments={
+                    "file_path": str(request.file_path),
+                    "sheet_name": request.sheet_name,
+                },
+            )
+    if "list_sheets" in request.allowed_tools:
+        return ToolCall(
+            name="list_sheets",
+            arguments={"file_path": str(request.file_path)},
+        )
+    return None
+
+
+def _deterministic_tool_answer(tool_result: ToolExecutionResult) -> str:
+    summary = normalize_answer_summary(_tool_result_summary(tool_result))
+    if tool_result.tool_name != "analyze_ledger":
+        return summary
+
+    schema = tool_result.output.get("schema")
+    if not isinstance(schema, dict):
+        return summary
+
+    missing_columns = schema.get("missing_required_columns")
+    if isinstance(missing_columns, list) and missing_columns:
+        return (
+            f"{summary}\n\n"
+            "Colonnes requises manquantes: "
+            f"{', '.join(str(column) for column in missing_columns)}."
+        )
+    return f"{summary}\n\nColonnes requises disponibles."
+
+
+def _deterministic_tool_results_answer(
+    tool_results: tuple[ToolExecutionResult, ...],
+) -> str:
+    balance_answer = _balance_reconciliation_answer(tool_results)
+    if balance_answer is not None:
+        return balance_answer
+    aggregation_answer = _aggregation_reconciliation_answer(tool_results)
+    if aggregation_answer is not None:
+        return aggregation_answer
+    for tool_name in (
+        "detect_tax_candidates",
+        "detect_data_quality_issues",
+        "analyze_ledger",
+        "classify_ledger_schema",
+        "profile_sheet",
+        "get_columns",
+        "list_sheets",
+    ):
+        for tool_result in reversed(tool_results):
+            if tool_result.tool_name == tool_name and tool_result.ok:
+                return _deterministic_tool_answer(tool_result)
+    return "Les contrôles déterministes sont terminés."
+
+
+def _final_answer_from_model_or_tools(
+    final_response: ModelResponse,
+    tool_results: tuple[ToolExecutionResult, ...],
+    answer_policy: AgentAnswerPolicy,
+) -> str:
+    balance_answer = _balance_reconciliation_answer(tool_results)
+    if balance_answer is not None:
+        return balance_answer
+    aggregation_answer = _aggregation_reconciliation_answer(tool_results)
+    if aggregation_answer is not None:
+        return aggregation_answer
+    if _is_controlled_internal_response(final_response):
+        return _deterministic_tool_results_answer(tool_results)
+    if not final_response.text.strip():
+        return _deterministic_tool_results_answer(tool_results)
+    return answer_policy.apply(final_response.text).answer
+
+
+def _aggregation_reconciliation_answer(
+    tool_results: tuple[ToolExecutionResult, ...],
+) -> str | None:
+    successful_results = tuple(result for result in tool_results if result.ok)
+    if len(successful_results) != 1:
+        return None
+    result = successful_results[0]
+    if result.tool_name != "aggregate_ledger":
+        return None
+    aggregations = result.output.get("aggregations")
+    if not isinstance(aggregations, dict):
+        return None
+    filters = result.output.get("filters")
+    filter_text = "Aucun"
+    if isinstance(filters, dict) and filters:
+        filter_text = ", ".join(
+            f"{key} = {value}" for key, value in filters.items()
+        )
+    lines = [
+        "**Rapprochement des agrégations**",
+        "",
+        f"Filtres appliqués : {filter_text}",
+        f"Écritures filtrées : {result.output.get('row_count', 0)}",
+    ]
+    for dimension, raw_aggregation in aggregations.items():
+        if not isinstance(raw_aggregation, dict):
+            continue
+        groups = raw_aggregation.get("groups")
+        if not isinstance(groups, list):
+            continue
+        lines.extend(
+            (
+                "",
+                f"**Regroupement par {dimension}**",
+                "",
+                "| Groupe | Devise | Lignes | Utilisées | Exclues | "
+                "Brut | Débit | Crédit | Solde |",
+                "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+            ),
+        )
+        for raw_group in groups:
+            if not isinstance(raw_group, dict):
+                continue
+            currency = str(raw_group.get("currency") or "Sans devise")
+            lines.append(
+                f"| {raw_group.get('key', 'Sans valeur')} | {currency} "
+                f"| {_integer_value(raw_group, 'entry_count')} "
+                f"| {_integer_value(raw_group, 'used_entry_count')} "
+                f"| {_integer_value(raw_group, 'excluded_entry_count')} "
+                f"| {_amount_value(raw_group, 'raw_amount_sum', currency)} "
+                f"| {_amount_value(raw_group, 'debit_total', currency)} "
+                f"| {_amount_value(raw_group, 'credit_total', currency)} "
+                f"| {_amount_value(raw_group, 'balance', currency)} |",
+            )
+    return "\n".join(lines)
+
+
+def _balance_reconciliation_answer(
+    tool_results: tuple[ToolExecutionResult, ...],
+) -> str | None:
+    result = next(
+        (
+            item
+            for item in reversed(tool_results)
+            if item.ok and item.tool_name == "calculate_ledger_metrics"
+        ),
+        None,
+    )
+    if result is None:
+        return None
+    reconciliation = result.output.get("balance_reconciliation")
+    if not isinstance(reconciliation, dict):
+        return None
+
+    filters = result.output.get("filters")
+    filter_text = "Aucun"
+    if isinstance(filters, dict) and filters:
+        filter_text = ", ".join(
+            f"{key} = {value}" for key, value in filters.items()
+        )
+    by_currency = reconciliation.get("by_currency")
+    currency_names = (
+        tuple(by_currency) if isinstance(by_currency, dict) else ()
+    )
+    display_currency = currency_names[0] if len(currency_names) == 1 else None
+    lines = [
+        "**Rapprochement du solde**",
+        "",
+        f"Filtres appliqués : {filter_text}",
+        f"Colonne de montant : {result.output.get('amount_field', 'Non renseignée')}",
+        "",
+        f"- Écritures trouvées : {_integer_value(reconciliation, 'entry_count')}",
+        f"- Écritures utilisées : {_integer_value(reconciliation, 'used_entry_count')}",
+        "- Écritures exclues : "
+        f"{_integer_value(reconciliation, 'excluded_entry_count')}",
+    ]
+    if len(currency_names) <= 1:
+        lines.extend(
+            (
+                "- Somme brute : "
+                f"{_amount_value(reconciliation, 'raw_amount_sum', display_currency)}",
+                "- Total débit : "
+                f"{_amount_value(reconciliation, 'debit_total', display_currency)}",
+                "- Total crédit : "
+                f"{_amount_value(reconciliation, 'credit_total', display_currency)}",
+                "- **Solde (débit − crédit) : "
+                f"{_amount_value(reconciliation, 'balance', display_currency)}**",
+            ),
+        )
+    else:
+        lines.append(
+            "- Montants globaux non présentés : plusieurs devises sont présentes.",
+        )
+    if isinstance(by_currency, dict) and by_currency:
+        lines.extend(
+            (
+                "",
+                "**Rapprochement par devise**",
+                "",
+                "| Devise | Brut | Débit | Crédit | Solde | Utilisées | Exclues |",
+                "|---|---:|---:|---:|---:|---:|---:|",
+            ),
+        )
+        for currency, raw_totals in by_currency.items():
+            if not isinstance(raw_totals, dict):
+                continue
+            raw_sum = _amount_value(raw_totals, "raw_amount_sum", currency)
+            lines.append(
+                f"| {currency} | {raw_sum} "
+                f"| {_amount_value(raw_totals, 'debit_total', currency)} "
+                f"| {_amount_value(raw_totals, 'credit_total', currency)} "
+                f"| {_amount_value(raw_totals, 'balance', currency)} "
+                f"| {_integer_value(raw_totals, 'used_entry_count')} "
+                f"| {_integer_value(raw_totals, 'excluded_entry_count')} |",
+            )
+    by_key = reconciliation.get("by_posting_key")
+    if isinstance(by_key, list) and by_key:
+        lines.extend(
+            (
+                "",
+                "**Détail par clé de comptabilisation**",
+                "",
+                "| Clé | Sens | Écritures | Utilisées | Montant brut |",
+                "|---|---|---:|---:|---:|",
+            ),
+        )
+        for raw_key in by_key:
+            if not isinstance(raw_key, dict):
+                continue
+            lines.append(
+                f"| {raw_key.get('posting_key', 'Sans clé')} "
+                f"| {raw_key.get('side', 'unknown')} "
+                f"| {_integer_value(raw_key, 'entry_count')} "
+                f"| {_integer_value(raw_key, 'used_entry_count')} "
+                f"| {_amount_value(raw_key, 'raw_amount_sum')} |",
+            )
+    reasons = reconciliation.get("excluded_reasons")
+    if isinstance(reasons, dict) and _integer_value(
+        reconciliation,
+        "excluded_entry_count",
+    ) > 0:
+        lines.extend(
+            (
+                "",
+                "**Avertissement**",
+                "",
+                "Le solde est calculé uniquement sur les écritures interprétables. "
+                "Clé absente ou inconnue : "
+                f"{reasons.get('missing_or_unknown_posting_key', 0)} ; "
+                "montant absent ou invalide : "
+                f"{reasons.get('missing_or_invalid_amount', 0)}.",
+            ),
+        )
+    return "\n".join(lines)
+
+
+def _amount_value(
+    values: dict[str, object],
+    key: str,
+    currency: str | None = None,
+) -> str:
+    value = values.get(key, 0)
+    if not isinstance(value, int | float):
+        return "0"
+    formatted = f"{value:,.2f}".replace(",", " ")
+    return f"{formatted} {currency}" if currency else formatted
+
+
+def _integer_value(values: dict[str, object], key: str) -> int:
+    value = values.get(key, 0)
+    return int(value) if isinstance(value, int | float) else 0
+
+
+def _is_controlled_internal_response(response: ModelResponse) -> bool:
+    return response.provider_name in {"internal", "internal-fallback"}
+
+
+def normalize_answer_summary(message: str) -> str:
+    return message.replace(
+        "L'analyse de la feuille Excel est terminée:",
+        "Analyse de la feuille Excel terminée:",
+    ).replace(
+        "L'analyse du Grand Livre est terminée:",
+        "Analyse du Grand Livre terminée:",
+    )
+
+
+def _initial_model_request(
+    request: AgentRunRequest,
+    tool_definitions: tuple[ModelToolDefinition, ...],
+) -> ModelRequest:
+    messages = [
+        ModelMessage(
+            role="system",
+            content=(
+                "Tu es un agent d'analyse Excel. Utilise seulement les tools "
+                "autorises. Ne prends aucune decision fiscale. Reponds en "
+                "Markdown clair avec des paragraphes courts. Pour une reponse "
+                "simple, n'ajoute pas de titre comme Introduction. Evite les "
+                "formulations a la premiere personne."
+            ),
+        ),
+        ModelMessage(role="user", content=request.user_message),
+    ]
+    if request.file_path is not None:
+        messages.append(
+            ModelMessage(role="system", content=f"Fichier cible: {request.file_path}"),
+        )
+    if request.sheet_name is not None:
+        messages.append(
+            ModelMessage(role="system", content=f"Feuille cible: {request.sheet_name}"),
+        )
+    return ModelRequest(
+        messages=tuple(messages),
+        allowed_tools=request.allowed_tools,
+        temperature=0.0,
+        max_output_tokens=1200,
+        timeout_seconds=30.0,
+        tool_definitions=tool_definitions,
+    )
+
+
+def _with_request_context(
+    tool_call: ToolCall,
+    request: AgentRunRequest,
+) -> ToolCall:
+    arguments = dict(tool_call.arguments)
+    if request.file_path is not None:
+        arguments["file_path"] = str(request.file_path)
+    if request.sheet_name is not None and tool_call.name != "list_sheets":
+        arguments["sheet_name"] = request.sheet_name
+    return ToolCall(name=tool_call.name, arguments=arguments)
+
+
+def _final_model_request(
+    request: AgentRunRequest,
+    tool_results: tuple[ToolExecutionResult, ...],
+) -> ModelRequest:
+    return ModelRequest(
+        messages=(
+            ModelMessage(
+                role="system",
+                content=(
+                    "Redige une reponse courte a partir des resultats de tools. "
+                    "Utilise du Markdown lisible: paragraphes courts, listes "
+                    "a puces si utile, tableaux simples seulement si cela clarifie. "
+                    "Pour une reponse simple, n'ajoute pas de titre comme "
+                    "Introduction. Evite les formulations a la premiere personne. "
+                    "Ne revele pas de donnees sensibles."
+                ),
+            ),
+            ModelMessage(role="user", content=request.user_message),
+            ModelMessage(
+                role="user",
+                content=(
+                    "Résultats déterministes déjà calculés par l'API. "
+                    "Réponds uniquement à partir de ces résultats, sans inventer.\n"
+                    f"{_tool_results_context(tool_results)}"
+                ),
+            ),
+        ),
+        allowed_tools=(),
+        temperature=0.0,
+        max_output_tokens=1200,
+        timeout_seconds=30.0,
+    )
+
+
+def _tool_results_context(tool_results: tuple[ToolExecutionResult, ...]) -> str:
+    payload = [
+        {
+            "tool_name": tool_result.tool_name,
+            "ok": tool_result.ok,
+            "summary": normalize_answer_summary(_tool_result_summary(tool_result)),
+            "output": _compact_tool_output(tool_result),
+            "error_code": tool_result.error_code,
+        }
+        for tool_result in tool_results
+    ]
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _compact_tool_output(tool_result: ToolExecutionResult) -> dict[str, object]:
+    output = tool_result.output
+    compact_output: dict[str, object] = {}
+    for key in (
+        "sheet_names",
+        "sheet_name",
+        "row_count",
+        "column_count",
+        "schema",
+        "columns",
+        "issue_count",
+        "severity_counts",
+        "issues",
+        "decision_status",
+        "candidates",
+        "aggregations",
+        "metrics",
+        "amount_field",
+        "balance_interpretation",
+        "metrics_by_currency",
+        "balance_reconciliation",
+        "total_matches",
+        "filters",
+        "page",
+        "page_size",
+        "returned_columns",
+        "message",
+        "entries",
+    ):
+        if key in output:
+            compact_output[key] = output[key]
+    return compact_output

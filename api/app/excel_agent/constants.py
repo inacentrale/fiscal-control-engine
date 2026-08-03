@@ -1,0 +1,7 @@
+SUPPORTED_EXCEL_SUFFIXES = frozenset({".xlsx", ".xlsm"})
+
+DETECTED_TYPE_EMPTY = "empty"
+DETECTED_TYPE_TEXT = "text"
+DETECTED_TYPE_NUMBER = "number"
+DETECTED_TYPE_DATETIME = "datetime"
+DETECTED_TYPE_BOOLEAN = "boolean"

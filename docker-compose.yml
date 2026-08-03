@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: harmonizer
+      POSTGRES_USER: harmonizer
+      POSTGRES_PASSWORD: harmonizer
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harmonizer -d harmonizer"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./api
+      target: development
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ./api/.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://harmonizer:harmonizer@db:5432/harmonizer}
+    ports:
+      - "${API_HOST_PORT:-8001}:8000"
+    volumes:
+      - ./api:/app
+      - ./docs:/workspace/docs:ro
+      - ./.local:/workspace/.local
+    command: uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+volumes:
+  postgres_data:

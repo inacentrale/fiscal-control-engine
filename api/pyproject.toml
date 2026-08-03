@@ -1,0 +1,51 @@
+[project]
+name = "bank-files-harmonizer-api"
+version = "0.1.0"
+description = "API FastAPI pour l'agent de revue fiscale pre-declaratif."
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.116.0",
+  "httpx>=0.28.0",
+  "openpyxl>=3.1.0",
+  "pandas>=2.2.0",
+  "Pillow>=11.0.0",
+  "pydantic-settings>=2.10.0",
+  "pypdf>=5.0.0",
+  "pypdfium2>=4.30.0",
+  "python-multipart>=0.0.20",
+  "psycopg[binary]>=3.2.0",
+  "SQLAlchemy>=2.0.0",
+  "pytesseract>=0.3.13",
+  "uvicorn[standard]>=0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "alembic>=1.13.0",
+  "mypy>=1.16.0,<2.0",
+  "pytest>=8.4.0",
+  "ruff>=0.12.0",
+]
+embeddings = [
+  "sentence-transformers>=3.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "app"]
+python_files = ["test_*.py", "*_test.py"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = []
+
+[[tool.mypy.overrides]]
+module = ["pandas.*", "PIL.*", "pypdfium2.*", "pytesseract.*"]
+ignore_missing_imports = true

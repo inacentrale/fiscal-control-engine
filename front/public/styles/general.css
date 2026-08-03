@@ -1,0 +1,72 @@
+.absolute-y {
+    @apply absolute top-[50%] -translate-y-1/2;
+}
+
+.absolute-x {
+    @apply absolute left-[50%] -translate-x-1/2;
+}
+
+.absolute-c {
+    @apply absolute left-[50%] top-[50%] -translate-1/2;
+}
+
+.flex-c {
+    @apply flex justify-center items-center;
+}
+
+.shadow-soft {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.05);
+    transition: box-shadow 0.2s ease-in-out;
+}
+
+.shadow-soft:hover {
+    @apply shadow-lg;
+}
+
+.shadow-soft-light {
+    box-shadow: 0 1px 5px rgba(0, 0, 0, 0.06);
+}
+
+.shadow-medium {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.shadow-soft-blur {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1), 0 4px 8px rgba(0, 0, 0, 0.07);
+}
+
+  
+  .cardShadow {
+    box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.05),
+      -1px -1px 2px rgba(0, 0, 0, 0.05);
+  }
+
+.table-row {
+    @apply border-solid border-0 border-b-[1px] border-b-black/10 *:bg-white *:py-3  *:px-3 *:my-2 *:first:!border-y-0  sm:*:py-2;
+}
+
+.ellipsis {
+    @apply text-ellipsis !overflow-hidden whitespace-nowrap;
+}
+
+.icon-badge {
+    @apply absolute top-0 -right-[2px] flex justify-center items-center bg-primary font-medium w-[11px] h-[11px] text-[10px] rounded-full text-white shadow-[0_1px_3px_rgba(0,0,0,0.05),_0_1px_2px_rgba(0,0,0,0.05)] transition-shadow duration-200 ease-in-out;
+}
+
+.historic-grid {
+    @apply my-4 grid grid-cols-1 gap-y-2 sm:gap-y-4 md:grid-cols-2 md:gap-y-6 lg:grid-cols-3 xl:grid-cols-3 xl:gap-[5%];
+}
+
+.admin-container {
+    @apply flex sm:block;
+}
+
+.shadow-none {
+  box-shadow: none !important;
+}
+
+@media (min-width: 640px) {
+  .filter-white-desktop {
+    filter: brightness(0) invert(1);
+  }
+}

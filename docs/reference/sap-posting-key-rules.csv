@@ -1,0 +1,15 @@
+posting_key,side,account_type,category,description,source_url
+01,debit,customer,standard,Facture client,https://help.sap.com/docs/SAP_ERP_SPV/16495edefb024a97bd918116c69026ed/71ccd8530439414de10000000a174cb4.html
+11,credit,customer,standard,Avoir client,https://help.sap.com/docs/SAP_ERP_SPV/16495edefb024a97bd918116c69026ed/71ccd8530439414de10000000a174cb4.html
+21,debit,vendor,standard,Avoir fournisseur,https://help.sap.com/docs/SAP_ERP_SPV/16495edefb024a97bd918116c69026ed/71ccd8530439414de10000000a174cb4.html
+31,credit,vendor,standard,Facture fournisseur,https://help.sap.com/docs/SAP_ERP_SPV/16495edefb024a97bd918116c69026ed/71ccd8530439414de10000000a174cb4.html
+40,debit,general_ledger,standard,Compte general au debit,https://help.sap.com/docs/SAP_ERP/c587d5cadece40a285ce9a6d4a2a4908/12f6c353fad0b44ce10000000a174cb4.html
+50,credit,general_ledger,standard,Compte general au credit,https://help.sap.com/docs/SAP_ERP/c587d5cadece40a285ce9a6d4a2a4908/12f6c353fad0b44ce10000000a174cb4.html
+70,debit,asset,standard,Immobilisation au debit,https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/67e323b7117e4c91869c258933f47182/135bcd5140308973e10000000a44538d.html
+75,credit,asset,standard,Immobilisation au credit,https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/67e323b7117e4c91869c258933f47182/4c3fde531ed3424de10000000a174cb4.html
+81,debit,material,standard,Compte de couts au debit,https://help.sap.com/docs/SAP_ERP/c587d5cadece40a285ce9a6d4a2a4908/12f6c353fad0b44ce10000000a174cb4.html
+91,credit,material,standard,Compte de couts au credit,https://help.sap.com/docs/SAP_ERP/c587d5cadece40a285ce9a6d4a2a4908/12f6c353fad0b44ce10000000a174cb4.html
+09,debit,customer,special_gl,Operation speciale client au debit,https://help.sap.com/docs/SAP_ERP/72b431fb78a649da9c8b46951e64fb88/68ecd353ca9f4408e10000000a174cb4.html
+19,credit,customer,special_gl,Operation speciale client au credit,https://help.sap.com/docs/SAP_ERP/72b431fb78a649da9c8b46951e64fb88/68ecd353ca9f4408e10000000a174cb4.html
+29,debit,vendor,special_gl,Operation speciale fournisseur au debit,https://help.sap.com/docs/SAP_ERP/72b431fb78a649da9c8b46951e64fb88/68ecd353ca9f4408e10000000a174cb4.html
+39,credit,vendor,special_gl,Operation speciale fournisseur au credit,https://help.sap.com/docs/SAP_ERP/72b431fb78a649da9c8b46951e64fb88/68ecd353ca9f4408e10000000a174cb4.html

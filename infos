@@ -1,0 +1,30 @@
+Le fichier compte du grand livre contient les numéros de compte distinct présent dans le grand livre envoyé précédemment. A partir du fichier plan comptable je souhaite extraire les libellés des comptes du Grand livre afin de cartographier les comptes entrant dans la catégorie ci-dessous (comptes soumis à la retenue à la source selon le code général des impôts du BF). Cette cartographie va ainsi guider l’implémentation des règles de contrôle de cohérence de la retenue à la source.
+
+
+
+
+Catégorie de charges
+
+Opérations ou bénéficiaires concernés
+
+Taux applicables / Remarques
+
+Prestations de services (Non-résidents)
+
+Études, assistance, redevances, frais de siège, droits d'auteur, etc., versés à l'étranger.
+
+20 % (sous réserve des conventions fiscales).
+
+Prestations de services (Résidents)
+
+Rémunérations versées à des prestataires locaux pour des factures ≥ 50 000 FCFA HT.
+
+1 % à 25 % (selon la situation du prestataire vis-à-vis de l'IFU).
+
+Charges immobilières
+
+Loyers versés aux bailleurs pour les locaux professionnels (Impôt sur les Revenus Fonciers - IRF).
+
+Taux de l'IRF applicable au loyer (18 % ou 25 %).
+
+ 

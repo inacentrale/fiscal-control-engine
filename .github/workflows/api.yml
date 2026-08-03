@@ -1,0 +1,76 @@
+name: API
+
+on:
+  pull_request:
+    paths:
+      - "api/**"
+      - "docker-compose.yml"
+      - "package.json"
+      - ".github/workflows/api.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "api/**"
+      - "docker-compose.yml"
+      - "package.json"
+      - ".github/workflows/api.yml"
+
+jobs:
+  secret-checks:
+    name: Secret checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for committed secrets
+        run: python3 api/scripts/secret_scanner.py .
+
+  api-checks:
+    name: API checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    env:
+      PYTHONPATH: "."
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Lint
+        run: uv run ruff check app tests scripts
+
+      - name: Typecheck
+        run: uv run mypy app tests scripts
+
+      - name: Test
+        run: uv run pytest -q
+
+      - name: Compile Python
+        run: uv run python -m compileall app tests scripts
+
+  api-docker-build:
+    name: API Docker build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build --target development ./api

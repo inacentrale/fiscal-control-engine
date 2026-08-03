@@ -1,0 +1,4 @@
+rule_id,version,regime,schedule,deadline_day,valid_from,valid_to,source_url,source_locator
+resident_monthly_deadline,v2021,resident,next_month_day,15,2021-01-01,,https://dgi.bf/verification/CGI,article 208
+nonresident_monthly_deadline,v2021,nonresident,next_month_day,15,2021-01-01,,https://dgi.bf/verification/CGI,article 214
+non_determined_monthly_deadline,v2023,non_determined,next_month_day,15,2023-01-01,,https://dgi.bf/verification/CGI,article 222

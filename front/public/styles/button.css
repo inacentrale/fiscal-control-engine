@@ -1,0 +1,28 @@
+.btn-base {
+    @apply relative rounded-[20px] sm:rounded-[25px] w-full font-medium tracking-wide cursor-pointer inline-flex gap-2 items-center !justify-center outline-none focus-visible:ring-2 focus:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 px-4 xs:px-8 py-3 sm:py-4 text-base flex-nowrap whitespace-nowrap;
+}
+
+.primary-btn {
+    @apply bg-primary text-white disabled:bg-primary whitespace-nowrap !font-medium focus:ring-2 focus:ring-primary focus:ring-offset-2 z-0;
+}
+
+.border-btn {
+    @apply border-solid border-[.5px] bg-white border-gray-300 focus:border-none focus:ring-2 focus:ring-primary focus:ring-offset-1;
+}
+
+.danger-btn {
+    @apply hover:bg-red-600 text-red-500 hover:text-white cursor-pointer bg-red-200 hover:bg-red-200 transition transform focus:outline-none focus:ring-2 focus:ring-red-500 p-2 rounded-full;
+}
+
+.cancel-order-btn {
+    @apply bg-white border border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors duration-200 flex items-center justify-center gap-2 font-medium rounded-[20px] py-3;
+}
+
+.plus-btn {
+    @apply bg-gray-100 px-1 py-[2px] rounded focus:outline-none ml-1 inline cursor-pointer font-medium text-sm;
+}
+
+.glass-banner-btn {
+    @apply h-10 rounded-full border border-white/35 bg-white/92 px-3 text-[14px] font-medium text-gray-900 backdrop-blur-md transition hover:bg-white hover:text-primary flex items-center justify-center gap-2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.05);
+}

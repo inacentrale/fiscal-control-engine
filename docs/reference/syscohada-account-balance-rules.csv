@@ -1,0 +1,23 @@
+account_prefix,normal_side,nature,description,source_url
+1,credit,resources_durables,Ressources durables généralement créditrices,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+2,debit,fixed_assets,Actif immobilisé généralement débiteur,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+3,debit,inventory,Stocks généralement débiteurs,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+4,variable,third_parties,Classe mixte regroupant créances et dettes,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+40,credit,suppliers,Fournisseurs généralement créditeurs,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+409,debit,supplier_receivables,Fournisseurs débiteurs - fonctionnement inversé du compte 40,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+41,debit,customers,Clients généralement débiteurs,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+419,credit,customer_payables,Clients créditeurs - fonctionnement inversé des comptes 411 à 418,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+42,variable,personnel,Créances et dettes envers le personnel,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+43,variable,social_bodies,Créances et dettes envers les organismes sociaux,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+44,variable,state_and_tax,Créances et dettes envers l'État et collectivités,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+46,variable,partners,Créances et dettes envers associés et groupe,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+47,variable,miscellaneous_third_parties,Débiteurs et créditeurs divers,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+49,credit,third_party_impairment,Dépréciations des comptes de tiers,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+5,variable,cash_and_financial,Classe de trésorerie nécessitant une règle de sous-compte,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+52,debit,banks,Banques généralement débitrices hors concours bancaires,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+56,credit,bank_overdrafts,Concours bancaires et crédits de trésorerie,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+57,debit,cash,Caisse généralement débitrice,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+58,variable,internal_transfers,Virements internes à fonctionnement transitoire,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+59,credit,treasury_impairment,Dépréciations et risques provisionnés de trésorerie,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+6,debit,expenses,Charges des activités ordinaires généralement débitrices,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf
+7,credit,revenue,Produits des activités ordinaires généralement créditeurs,https://dgd.gov.gn/wp-content/uploads/2023/10/Ohada_syscohada_plan_comptable.pdf

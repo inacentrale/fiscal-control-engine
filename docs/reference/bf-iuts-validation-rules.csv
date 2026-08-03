@@ -1,0 +1,14 @@
+rule_id,version,rule_type,sequence,lower_bound,upper_bound,rate,dependent_count,deadline_day,small_withholding_threshold,valid_from,valid_to,source_url,source_locator
+iuts_bracket_01,v2024,bracket,1,0,30000,0,,,,2024-01-01,,https://dgi.bf/verification/CGI,article 112
+iuts_bracket_02,v2024,bracket,2,30000,50000,12.10,,,,2024-01-01,,https://dgi.bf/verification/CGI,article 112
+iuts_bracket_03,v2024,bracket,3,50000,80000,13.90,,,,2024-01-01,,https://dgi.bf/verification/CGI,article 112
+iuts_bracket_04,v2024,bracket,4,80000,120000,15.70,,,,2024-01-01,,https://dgi.bf/verification/CGI,article 112
+iuts_bracket_05,v2024,bracket,5,120000,170000,18.40,,,,2024-01-01,,https://dgi.bf/verification/CGI,article 112
+iuts_bracket_06,v2024,bracket,6,170000,250000,21.70,,,,2024-01-01,,https://dgi.bf/verification/CGI,article 112
+iuts_bracket_07,v2024,bracket,7,250000,,25.00,,,,2024-01-01,,https://dgi.bf/verification/CGI,article 112
+iuts_family_0,v2024,family_reduction,,,,0,0,,,2024-01-01,,https://dgi.bf/verification/CGI,article 113
+iuts_family_1,v2024,family_reduction,,,,8,1,,,2024-01-01,,https://dgi.bf/verification/CGI,article 113
+iuts_family_2,v2024,family_reduction,,,,10,2,,,2024-01-01,,https://dgi.bf/verification/CGI,article 113
+iuts_family_3,v2024,family_reduction,,,,12,3,,,2024-01-01,,https://dgi.bf/verification/CGI,article 113
+iuts_family_4,v2024,family_reduction,,,,14,4,,,2024-01-01,,https://dgi.bf/verification/CGI,article 113
+iuts_deadline,v2024,deadline,,,,,,10,5000,2024-01-01,,https://dgi.bf/verification/CGI,article 116

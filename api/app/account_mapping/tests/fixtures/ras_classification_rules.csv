@@ -1,0 +1,5 @@
+category,keywords,confidence,justification,action_required
+non_resident_services,"etranger;non resident;frais de siege;redevance",medium,Libelle compatible avec une prestation ou redevance versee a un non-resident.,Verifier residence fiscale et convention applicable.
+real_estate_charges,"loyer;loyers;bail",medium,Libelle compatible avec une charge immobiliere.,Verifier bailleur, base imposable et taux IRF.
+resident_services,"honoraire;honoraires;assistance;conseil",medium,Libelle compatible avec une prestation de services.,Verifier IFU seuil facture et taux RAS applicable.
+out_of_scope,"materiel;mobilier;compte bancaire;prets;pret;immobilisation",medium,Libelle sans indice direct de retenue a la source.,Aucune action RAS immediate.

@@ -1,0 +1,180 @@
+@import "tailwindcss";
+@import "./general.css";
+@import "./form.css";
+@import "./button.css";
+@import "./animation.css";
+@import "./cards.css";
+
+@theme {
+    --color-primary: #3664FF;
+    --color-secondary: #F59E0B;
+    --color-tertiary: #10B981;
+    --color-quaternary: #8B5CF6;
+    --color-gray-bg: #f7f9fa;
+    --breakpoint-xs: 30rem;
+    --breakpoint-mobile: 26.25rem;
+    --grid-template-columns-13: repeat(13, minmax(0, 1fr));
+    --grid-template-columns-14: repeat(14, minmax(0, 1fr));
+}
+
+:root {
+    color-scheme: light only;
+
+    --sidebar-width-sm: 240px;
+    --sidebar-width-lg: 280px;
+    --sidebar-width-xl: 310px;
+
+    --secondbar-width-lg: 300px;
+    --secondbar-width-xl: 350px;
+}
+
+body {
+    color-scheme: light only;
+    font-family: 'Gilroy', sans-serif;
+}
+
+.gilroy {
+    font-family: 'Gilroy', sans-serif !important;
+}
+
+.auth-background {
+    background-color: hsla(111, 0%, 100%, 1);
+    background-image:
+        radial-gradient(at 61% 81%, hsla(119, 49%, 69%, 1) 0px, transparent 50%),
+        radial-gradient(at 84% 26%, hsla(217, 49%, 75%, 1) 0px, transparent 50%),
+        radial-gradient(at 32% 15%, hsla(145, 49%, 95%, 1) 0px, transparent 50%),
+        radial-gradient(at 3% 15%, hsla(84, 49%, 73%, 1) 0px, transparent 50%);
+}
+
+@layer components {
+    .register-background {
+        @apply bg-gradient-to-t from-[#F2F3F4] via-[#EAECEC] to-[#FFFFFF];
+    }
+
+    .auth-background {
+        @apply bg-gradient-to-r from-[#F2F3F4] via-[#EAECEC] to-[#FFFFFF];
+    }
+
+    @media (min-width: 475px) {
+        .register-background {
+            @apply bg-gradient-to-r from-[#F2F3F4] via-[#EAECEC] to-[#FFFFFF];
+        }
+    }
+}
+
+@layer animations {
+    @keyframes caret-blink {
+
+        0%,
+        70%,
+        100% {
+            opacity: 1;
+        }
+
+        20%,
+        50% {
+            opacity: 0;
+        }
+    }
+
+    .caret-blink {
+        animation: caret-blink 1.25s ease-out infinite;
+    }
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type="number"] {
+    -moz-appearance: textfield;
+}
+
+.clip-hexagon {
+    clip-path: polygon(30% 0%, 70% 0%, 100% 50%, 70% 100%, 30% 100%, 0% 50%);
+    border-radius: 12px;
+    padding: 8px;
+}
+
+.scrollbar-none {
+    scrollbar-width: none;
+    /* Firefox */
+    -ms-overflow-style: none;
+    /* IE 10+ */
+}
+
+.scrollbar-none::-webkit-scrollbar {
+    display: none;
+    /* Chrome, Safari, Edge */
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+
+.custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(64, 81, 92, 0.28) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    border: none;
+    box-shadow: none;
+    background: rgba(64, 81, 92, 0.28);
+    border-radius: 999px;
+    min-height: 40px;
+    transition: background 0.1s ease;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(64, 81, 92, 0.42);
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+    border: none;
+}
+
+.custom-scrollbar::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+input[type="search"]::-webkit-search-cancel-button {
+    display: none;
+}
+
+.custom-background {
+    background-size: cover;
+    background-image: url("../assets/message-background.png");
+}
+
+.shadow-short:not(:is(.dark *)) {
+    --tw-shadow: 0px 4px 4px 0px var(--tw-shadow-color, var(--shadow-color-1, #0000000a)), 0px 0px 1px 0px var(--tw-shadow-color, var(--shadow-color-2, #0000009e));
+    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+}
+
+.shadow-sm-all {
+    box-shadow:
+        0 1px 3px 0 rgba(0, 0, 0, 0.04),
+        0 -1px 3px 0 rgba(0, 0, 0, 0.04),
+        1px 0 3px 0 rgba(0, 0, 0, 0.04),
+        -1px 0 3px 0 rgba(0, 0, 0, 0.04);
+}
+
+.maplibregl-ctrl-attrib-button {
+    display: none;
+}
+
+
+/* Forcer les éléments de pour le light mode */
+
+*, *::before, *::after {
+    color-scheme: light;
+}
+
+input, textarea, select, button {
+    color-scheme: light;
+}

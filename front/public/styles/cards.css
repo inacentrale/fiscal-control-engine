@@ -1,0 +1,24 @@
+.card-canvas {
+    position: relative;
+    padding: 1rem;
+    border-radius: 1rem;
+    background-image:
+        linear-gradient(rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+    background-size: 20px 20px;
+    background-color: #ffffff;
+}
+
+.card-backdrop {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(600px circle at var(--mouse-x, 0) var(--mouse-y, 0), rgba(0, 0, 0, 0.02), transparent 40%);
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 500ms;
+    pointer-events: none;
+}
+
+.card-canvas:hover .card-backdrop {
+    opacity: 1;
+}

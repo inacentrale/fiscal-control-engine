@@ -1,0 +1,4 @@
+policy_id,version,level,rank,required_layers,description
+bf_tax_assurance_limited,v1,limited,1,structure|completeness|arithmetic|fiscal,Declaration controlee sans rapprochement externe complet
+bf_tax_assurance_reinforced,v1,reinforced,2,structure|completeness|arithmetic|fiscal|historical|reconciliation,Declaration rapprochee avec historique et comptabilite
+bf_tax_assurance_high,v1,high,3,structure|completeness|arithmetic|fiscal|historical|reconciliation|supporting_documents|payment_reconciliation,Declaration rapprochee avec comptabilite pieces et paiements
