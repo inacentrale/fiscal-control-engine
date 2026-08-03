@@ -1,9 +1,11 @@
 import csv
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from app.rag_source.domain import (
+    RagApplicabilityStatus,
     RagSourceMetadata,
     RagSourceOrigin,
     RagSourceType,
@@ -56,6 +58,12 @@ def _build_corpus_block(row: dict[str, str], source_path: Path) -> RagCorpusBloc
         origin=RagSourceOrigin.ANONYMIZED_REFERENCE,
         source_path=str(source_path),
         themes=(theme,),
+        applicable_from=_parse_optional_date(row.get("applicable_from")),
+        applicable_to=_parse_optional_date(row.get("applicable_to")),
+        source_url=row.get("source_url"),
+        applicability_status=RagApplicabilityStatus(
+            (row.get("applicability_status") or "not_applicable").strip(),
+        ),
     )
     block = RagTextBlock(
         block_type=RagTextBlockType(row["block_type"].strip()),
@@ -67,6 +75,22 @@ def _build_corpus_block(row: dict[str, str], source_path: Path) -> RagCorpusBloc
 
 
 def _infer_domain(source_type: str) -> str:
-    if source_type.strip() in {"tax_code", "doctrine", "rate_reference"}:
+    if source_type.strip() in {
+        "tax_code",
+        "law",
+        "administrative_instruction",
+        "official_form",
+        "doctrine",
+        "rate_reference",
+    }:
         return "fiscal"
     return "compliance"
+
+
+def _parse_optional_date(value: str | None) -> date | None:
+    if value is None or not value.strip():
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError as exc:
+        raise ValueError("applicability dates must use YYYY-MM-DD") from exc

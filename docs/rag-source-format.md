@@ -11,6 +11,9 @@ Le document ne doit jamais servir a faire decider le LLM a la place du moteur ou
 ## Types de Sources
 
 - `tax_code`: code fiscal ou texte legal.
+- `law`: loi autonome ou loi de finances.
+- `administrative_instruction`: instruction officielle de l'administration.
+- `official_form`: imprime officiel utilise comme source de structure.
 - `doctrine`: doctrine ou commentaire fiscal.
 - `internal_procedure`: procedure interne validee.
 - `rate_reference`: referentiel de taux, seuils ou periodes.
@@ -44,6 +47,9 @@ Chaque source doit avoir:
 Pour une source fiscale, ajouter aussi:
 
 - `country`: pays concerne, par exemple `BF`.
+- `applicable_from` et `applicable_to`: bornes ISO, vides si non confirmees.
+- `applicability_status`: `confirmed`, `not_stated` ou `not_applicable`.
+- `source_url`: URL HTTPS officielle citable.
 
 Pour `user_upload`, ajouter aussi:
 

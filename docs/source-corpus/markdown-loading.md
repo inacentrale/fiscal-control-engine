@@ -27,9 +27,12 @@ source Markdown validee
 
 ## Etat Actuel
 
-Le scan local trouve 3 sources Markdown fiscales:
+Le scan local trouve 16 sources Markdown fiscales:
 
-- 0 indexable;
-- 3 bloquees.
+- 16 indexables;
+- 0 bloquee;
+- 37 blocs exportables.
 
-Ce comportement est attendu tant que les squelettes fiscaux ne sont pas remplis et valides.
+Les sources dont la date ou le contenu normatif reste incertain ne sont
+indexees que comme structure, ou restent dans l'inventaire avec un statut
+explicite; elles ne deviennent pas des regles deterministes.

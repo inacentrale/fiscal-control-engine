@@ -4,6 +4,61 @@ from unicodedata import normalize
 from app.rag_source.domain import RagChunk
 
 MIN_TERM_LENGTH = 3
+_STOPWORDS = frozenset(
+    {
+        "les",
+        "des",
+        "une",
+        "un",
+        "par",
+        "qui",
+        "que",
+        "quoi",
+        "dont",
+        "pour",
+        "dans",
+        "sur",
+        "sous",
+        "entre",
+        "avec",
+        "sans",
+        "sont",
+        "est",
+        "etre",
+        "ete",
+        "ces",
+        "cet",
+        "cette",
+        "ceux",
+        "cela",
+        "leur",
+        "leurs",
+        "tout",
+        "toute",
+        "tous",
+        "toutes",
+        "mais",
+        "comme",
+        "donc",
+        "alors",
+        "ainsi",
+        "aussi",
+        "meme",
+        "memes",
+        "ils",
+        "elle",
+        "elles",
+        "nous",
+        "vous",
+        "plus",
+        "afin",
+        "vers",
+        "chez",
+        "lors",
+        "apres",
+        "avant",
+    },
+)
 
 
 @dataclass(frozen=True)
@@ -55,6 +110,6 @@ def _tokenize(value: str) -> tuple[str, ...]:
     terms = {
         term
         for term in normalized.lower().split()
-        if len(term) >= MIN_TERM_LENGTH
+        if len(term) >= MIN_TERM_LENGTH and term not in _STOPWORDS
     }
     return tuple(sorted(terms))

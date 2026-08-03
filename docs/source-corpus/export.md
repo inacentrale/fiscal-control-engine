@@ -18,6 +18,10 @@ Colonnes:
 - `source_type`
 - `title`
 - `version`
+- `applicable_from`
+- `applicable_to`
+- `source_url`
+- `applicability_status`
 - `block_reference`
 - `block_type`
 - `theme`
@@ -32,11 +36,25 @@ Colonnes:
 
 ## Etat Actuel
 
-Export reel:
+Export reel (2026-08-03):
 
-- 3 sources scannees;
-- 0 source exportee;
-- 0 bloc exporte;
-- 3 sources bloquees.
+- 16 sources scannees;
+- 16 sources exportees;
+- 37 blocs exportes;
+- 0 source bloquee.
 
-C'est attendu tant que les squelettes fiscaux ne sont pas remplis et valides.
+Sortie generee: `docs/reference/rag-source-corpus.generated.csv`.
+
+Les 16 sources ont ete passees `validation_status: validated` par
+auto-validation du porteur du projet (pas par un expert-comptable ou
+fiscaliste, indisponible pour le moment) — voir `docs/open-questions.md`.
+Si une relecture professionnelle ulterieure corrige le contenu des
+squelettes, relancer cet export pour regenerer le CSV.
+
+Note sur le multi-sources: `RagChunker.chunk()` suppose un seul document
+par appel et n'attribue le titre correct qu'a une source a la fois. Pour
+chunker un CSV exporte contenant plusieurs sources distinctes (comme
+celui-ci), utiliser `chunk_corpus_blocks()`
+(`api/app/rag_source/chunker.py`), qui regroupe les blocs par source avant
+de les chunker, plutot que d'appeler `RagChunker.chunk()` directement sur
+l'ensemble.

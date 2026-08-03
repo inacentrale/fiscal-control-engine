@@ -1,8 +1,13 @@
+from datetime import date
 from pathlib import Path
 
 import pytest
 
-from app.rag_source.domain import RagSourceType, RagTextBlockType
+from app.rag_source.domain import (
+    RagApplicabilityStatus,
+    RagSourceType,
+    RagTextBlockType,
+)
 from app.rag_source.markdown_source_loader import load_markdown_source_blocks
 
 
@@ -17,6 +22,13 @@ def test_load_markdown_source_blocks_from_validated_source(tmp_path: Path) -> No
     assert blocks[0].metadata.country == "BF"
     assert blocks[0].metadata.source_type is RagSourceType.TAX_CODE
     assert blocks[0].metadata.themes == ("RAS", "loyers")
+    assert blocks[0].metadata.applicable_from == date(2026, 1, 1)
+    assert blocks[0].metadata.applicable_to is None
+    assert (
+        blocks[0].metadata.applicability_status
+        is RagApplicabilityStatus.CONFIRMED
+    )
+    assert blocks[0].metadata.source_url == "https://dgi.bf/verification/CGI"
     assert blocks[0].block.block_type is RagTextBlockType.ARTICLE
     assert blocks[0].block.reference == "ART-001"
     assert blocks[0].block.heading == "RAS"
@@ -64,6 +76,10 @@ def _validated_source_markdown(
 - `source_type`: `tax_code`
 - `title`: `Code fiscal valide`
 - `version`: `2026`
+- `applicable_from`: `2026-01-01`
+- `applicable_to`: ``
+- `applicability_status`: `confirmed`
+- `source_url`: `https://dgi.bf/verification/CGI`
 - `language`: `fr`
 - `origin`: `anonymized_reference`
 - `themes`: `RAS; loyers`

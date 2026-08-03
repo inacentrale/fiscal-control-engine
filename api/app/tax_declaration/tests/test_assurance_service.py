@@ -1,5 +1,6 @@
 from app.tax_declaration.assurance_policy import TaxAssurancePolicy
 from app.tax_declaration.assurance_service import TaxAssuranceService
+from app.tax_declaration.domain import TaxDeclarationType
 from app.tax_declaration.validation_domain import (
     OverallValidationStatus,
     TaxDeclarationValidationReport,
@@ -116,7 +117,15 @@ def _report(*layers: ValidationLayer) -> TaxDeclarationValidationReport:
 def _policies() -> tuple[TaxAssurancePolicy, ...]:
     core = _core_layers()
     return (
-        TaxAssurancePolicy("limited", "v1", "limited", 1, core, "Limited"),
+        TaxAssurancePolicy(
+            "limited",
+            "v1",
+            "limited",
+            1,
+            core,
+            "Limited",
+            TaxDeclarationType.VAT,
+        ),
         TaxAssurancePolicy(
             "reinforced",
             "v1",
@@ -124,6 +133,7 @@ def _policies() -> tuple[TaxAssurancePolicy, ...]:
             2,
             (*core, ValidationLayer.HISTORICAL, ValidationLayer.RECONCILIATION),
             "Reinforced",
+            TaxDeclarationType.VAT,
         ),
         TaxAssurancePolicy(
             "high",
@@ -138,5 +148,6 @@ def _policies() -> tuple[TaxAssurancePolicy, ...]:
                 ValidationLayer.PAYMENT_RECONCILIATION,
             ),
             "High",
+            TaxDeclarationType.VAT,
         ),
     )

@@ -43,13 +43,42 @@ Les questions de recherche fondees sur CGI ou doctrine restent en attente de sou
 
 Etat actuel:
 
-- 5 blocs de procedure interne;
-- 12 questions d'evaluation pretes;
-- 13 questions encore en attente de source fiscale.
+- 6 blocs de procedure interne (dont `PROC-001-S6`, exclusion hors perimetre RAS,
+  ajoute pour couvrir RAG-Q015 et RAG-Q016 sans dependre d'une source fiscale
+  externe);
+- 16 sources fiscales `validation_status: validated` (RAS residents,
+  RAS non-residents, loyers, CGI TVA/IUTS/IS, quatre imprimes et trois lois
+  de finances et trois instructions administratives), exportees vers
+  `docs/reference/rag-source-corpus.generated.csv` (37 blocs);
+- 16 questions d'evaluation pretes;
+- 9 questions encore en attente, dont 2 (RAG-Q007, RAG-Q013) qui
+  necessitent une doctrine/commentaire fiscal redigeable seulement par un
+  expert-comptable ou fiscaliste, et 7 (RAG-Q001, Q002, Q004, Q006, Q008,
+  Q012, Q014) dont la source existe et est validee mais dont le retrieval
+  lexical ne classe pas encore le bon passage de facon fiable (voir
+  limite ci-dessous).
 
-Les squelettes fiscaux a completer sont dans `docs/source-corpus/fiscal/`.
+**Decision du 2026-08-03**: les sources fiscales ont ete passees
+`validation_status: validated` par auto-validation du porteur du projet
+(pas par un expert-comptable/fiscaliste, indisponible pour le moment) —
+voir `docs/open-questions.md` pour le detail de cette decision et le
+risque assume.
 
-Le validateur local detecte actuellement 3 fichiers source, tous non indexables tant qu'ils contiennent `A COMPLETER` et `validation_status: draft`.
+**Limite de retrieval decouverte en verifiant les questions**: le
+`LexicalRetriever` compare des mots exacts sans racinisation. Sur des
+paires d'articles tres proches en vocabulaire (residents/non-residents,
+par exemple), des mots comme `resident` (article 206, verbe) et
+`residentes` (article 210, adjectif) ne matchent pas entre eux, ce qui
+peut faire remonter le mauvais article. Un filtre de mots vides francais a
+ete ajoute a `LexicalRetriever` (`api/app/rag_source/lexical_retriever.py`)
+et ameliore les choses, mais ne resout pas cette classe de probleme: une
+vraie solution demande une racinisation ou une recherche semantique. Le
+service `FiscalVectorRetriever` branche maintenant les embeddings sur le
+chargement Markdown multi-sources, l'index et la vectorisation de la requete;
+le fournisseur `sentence-transformers` reste configurable au deploiement.
+
+Le validateur local detecte 16 fichiers source fiscaux, tous indexables
+(`validation_status: validated`, aucun placeholder restant).
 
 Le chargement Markdown vers blocs RAG est documente dans `docs/source-corpus/markdown-loading.md`.
 

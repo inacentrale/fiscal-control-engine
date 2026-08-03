@@ -6,7 +6,11 @@ import pytest
 from app.tax_declaration.document_text_extractor import (
     DeclarationDocumentTextExtractor,
 )
-from app.tax_declaration.domain import DeclarationSourceFormat, SourceReference
+from app.tax_declaration.domain import (
+    DeclarationSourceFormat,
+    SourceReference,
+    TaxDeclarationType,
+)
 from app.tax_declaration.supporting_evidence import (
     SupportingEvidenceExtractionError,
     SupportingEvidenceExtractor,
@@ -54,6 +58,43 @@ def test_partner_identifier_is_optional(tmp_path: Path) -> None:
 
     assert invoice.partner_identifier is None
     assert invoice.partner_identifier_type is None
+
+
+def test_infers_equivalent_partner_identifier_type_from_source_header(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "factures-nif.csv"
+    source.write_text(
+        "Facture;NIF;Montant HT;TVA;Total TTC;Devise;Ligne TVA\n"
+        "F-003;0012345;1000;180;1180;XOF;20\n",
+        encoding="utf-8",
+    )
+
+    invoice = SupportingEvidenceExtractor().extract_invoices(
+        source,
+        _reference(source, DeclarationSourceFormat.CSV),
+    )[0]
+
+    assert invoice.partner_identifier == "0012345"
+    assert invoice.partner_identifier_type == "NIF"
+
+
+def test_extracts_withholding_amount_without_vat_columns(tmp_path: Path) -> None:
+    source = tmp_path / "ras-evidence.csv"
+    source.write_text(
+        "Numero facture;Montant des retenues;Devise;Ligne RAS\n"
+        "F-RAS-1;20000;XOF;01\n",
+        encoding="utf-8",
+    )
+
+    evidence = SupportingEvidenceExtractor().extract_invoices(
+        source,
+        _reference(source, DeclarationSourceFormat.CSV),
+        declaration_type=TaxDeclarationType.WITHHOLDING_TAX,
+    )
+
+    assert evidence[0].declaration_amount == Decimal("20000")
+    assert evidence[0].vat_amount is None
 
 
 def test_extracts_payment_and_keeps_invoice_link(tmp_path: Path) -> None:

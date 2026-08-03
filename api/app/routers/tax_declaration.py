@@ -39,6 +39,16 @@ from app.tax_declaration.assurance_service import (
     TaxAssuranceAssessment,
     TaxAssuranceService,
 )
+from app.tax_declaration.corporate_income_tax_historical_validation import (
+    CorporateIncomeTaxHistoricalValidator,
+)
+from app.tax_declaration.corporate_income_tax_rule_loader import (
+    CorporateIncomeTaxRuleReferenceError,
+    load_corporate_income_tax_validation_rules,
+)
+from app.tax_declaration.corporate_income_tax_validation_service import (
+    CorporateIncomeTaxDeclarationValidator,
+)
 from app.tax_declaration.domain import (
     CanonicalField,
     CanonicalTaxDeclaration,
@@ -173,57 +183,23 @@ async def analyze_tax_declaration(
             sheet_name=sheet_name,
             original_file_name=original_file_name,
         )
-        validation = None
-        if (
-            result.declaration is not None
-            and result.declaration_type is TaxDeclarationType.VAT
-        ):
-            rules = load_vat_validation_rules(
-                Path(settings.vat_validation_rules_path),
-            )
-            validation = VatDeclarationValidator().validate(
+        validation = (
+            _validate_declaration(
+                settings,
                 result.declaration,
-                rules,
-                period_end=period_end,
-                filing_date=filing_date,
-            )
-        elif (
-            result.declaration is not None
-            and result.declaration_type is TaxDeclarationType.WITHHOLDING_TAX
-        ):
-            withholding_rules = load_withholding_validation_rules(
-                Path(settings.withholding_validation_rules_path),
-            )
-            withholding_deadline_rules = load_withholding_deadline_rules(
-                Path(settings.withholding_deadline_rules_path),
-            )
-            validation = WithholdingDeclarationValidator().validate(
-                result.declaration,
-                withholding_rules,
-                period_end=period_end,
-                filing_date=filing_date,
-                deadline_rules=withholding_deadline_rules,
-                tolerance=tolerance,
-            )
-        elif (
-            result.declaration is not None
-            and result.declaration_type is TaxDeclarationType.PAYROLL_TAX
-        ):
-            payroll_tax_rules = load_payroll_tax_validation_rules(
-                Path(settings.payroll_tax_validation_rules_path),
-            )
-            validation = PayrollTaxDeclarationValidator().validate(
-                result.declaration,
-                payroll_tax_rules,
                 period_end=period_end,
                 filing_date=filing_date,
                 tolerance=tolerance,
             )
+            if result.declaration is not None
+            else None
+        )
         assurance = (
             TaxAssuranceService().assess(
                 (validation,),
                 load_tax_assurance_policies(
                     Path(settings.tax_assurance_policy_path),
+                    declaration_type=result.declaration_type,
                 ),
             )
             if validation is not None
@@ -258,6 +234,12 @@ async def analyze_tax_declaration(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "payroll_tax_rule_reference_error",
             "Le referentiel de validation IUTS est indisponible.",
+        )
+    except CorporateIncomeTaxRuleReferenceError:
+        return _error_response(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "corporate_income_tax_rule_reference_error",
+            "Le referentiel de validation IS est indisponible.",
         )
     except TaxAssurancePolicyError:
         return _error_response(
@@ -295,14 +277,17 @@ async def analyze_tax_declaration_history(
     previous_file: Annotated[UploadFile, File()],
     current_period_end: Annotated[date, Form()],
     previous_period_end: Annotated[date, Form()],
+    declaration_type: Annotated[TaxDeclarationType | None, Form()] = None,
     current_sheet_name: Annotated[str | None, Form()] = None,
     previous_sheet_name: Annotated[str | None, Form()] = None,
+    tolerance: Annotated[Decimal, Form()] = Decimal("0"),
 ) -> TaxDeclarationHistoryResponse | JSONResponse:
+    effective_type = declaration_type or TaxDeclarationType.VAT
     try:
         current = await _ingest_upload(
             current_file,
             settings,
-            declaration_type=TaxDeclarationType.VAT,
+            declaration_type=effective_type,
             sheet_name=current_sheet_name,
             original_file_name=Path(
                 current_file.filename or "current-declaration.upload",
@@ -311,14 +296,18 @@ async def analyze_tax_declaration_history(
         previous = await _ingest_upload(
             previous_file,
             settings,
-            declaration_type=TaxDeclarationType.VAT,
+            declaration_type=effective_type,
             sheet_name=previous_sheet_name,
             original_file_name=Path(
                 previous_file.filename or "previous-declaration.upload",
             ).name,
         )
         validation = None
-        if current.declaration is not None and previous.declaration is not None:
+        if (
+            current.declaration is not None
+            and previous.declaration is not None
+            and effective_type is TaxDeclarationType.VAT
+        ):
             rules = load_vat_validation_rules(
                 Path(settings.vat_validation_rules_path),
             )
@@ -328,6 +317,22 @@ async def analyze_tax_declaration_history(
                 rules,
                 current_period_end=current_period_end,
                 previous_period_end=previous_period_end,
+            )
+        elif (
+            current.declaration is not None
+            and previous.declaration is not None
+            and effective_type is TaxDeclarationType.CORPORATE_INCOME_TAX
+        ):
+            corporate_income_tax_rules = load_corporate_income_tax_validation_rules(
+                Path(settings.corporate_income_tax_validation_rules_path),
+            )
+            validation = CorporateIncomeTaxHistoricalValidator().validate(
+                current.declaration,
+                previous.declaration,
+                corporate_income_tax_rules,
+                current_period_end=current_period_end,
+                previous_period_end=previous_period_end,
+                tolerance=tolerance,
             )
     except TaxDeclarationUploadTooLargeError:
         return _error_response(
@@ -346,6 +351,12 @@ async def analyze_tax_declaration_history(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "vat_rule_reference_error",
             "Le referentiel de validation TVA est indisponible.",
+        )
+    except CorporateIncomeTaxRuleReferenceError:
+        return _error_response(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "corporate_income_tax_rule_reference_error",
+            "Le referentiel de validation IS est indisponible.",
         )
     finally:
         await current_file.close()
@@ -366,6 +377,7 @@ async def analyze_tax_declaration_history(
     responses={
         400: {"model": TaxDeclarationErrorResponse},
         413: {"model": TaxDeclarationErrorResponse},
+        500: {"model": TaxDeclarationErrorResponse},
     },
 )
 async def reconcile_tax_declaration_ledger(
@@ -376,7 +388,10 @@ async def reconcile_tax_declaration_ledger(
     declaration_period_end: Annotated[date, Form()],
     declaration_currency: Annotated[str, Form()],
     ledger_sheet_name: Annotated[str, Form()],
+    declaration_type: Annotated[TaxDeclarationType, Form()] = TaxDeclarationType.VAT,
     declaration_sheet_name: Annotated[str | None, Form()] = None,
+    filing_date: Annotated[date | None, Form()] = None,
+    fiscal_tolerance: Annotated[Decimal, Form()] = Decimal("0"),
 ) -> TaxDeclarationLedgerReconciliationResponse | JSONResponse:
     uploads = (declaration_file, ledger_file, mapping_file)
     try:
@@ -399,13 +414,17 @@ async def reconcile_tax_declaration_ledger(
             declaration_result = TaxDeclarationIngestionService().ingest(
                 declaration_path,
                 content_type=declaration_file.content_type,
-                expected_type=TaxDeclarationType.VAT,
+                expected_type=declaration_type,
                 sheet_name=declaration_sheet_name,
                 file_name=Path(
                     declaration_file.filename or "declaration.upload",
                 ).name,
             )
-            mappings = load_vat_ledger_mappings(mapping_path)
+            mappings = tuple(
+                mapping
+                for mapping in load_vat_ledger_mappings(mapping_path)
+                if mapping.declaration_type is declaration_type
+            )
             calculator = LedgerAnalysisService(
                 excel_tools=ExcelAgentTools(allowed_root=root),
                 posting_key_rules=load_posting_key_rules(
@@ -428,11 +447,50 @@ async def reconcile_tax_declaration_ledger(
                 if declaration_result.declaration is not None
                 else None
             )
+            declaration_validation = (
+                _validate_declaration(
+                    settings,
+                    declaration_result.declaration,
+                    period_end=declaration_period_end,
+                    filing_date=filing_date,
+                    tolerance=fiscal_tolerance,
+                )
+                if declaration_result.declaration is not None
+                else None
+            )
+            assurance = (
+                TaxAssuranceService().assess(
+                    tuple(
+                        report
+                        for report in (declaration_validation, validation)
+                        if report is not None
+                    ),
+                    load_tax_assurance_policies(
+                        Path(settings.tax_assurance_policy_path),
+                        declaration_type=declaration_type,
+                    ),
+                )
+                if declaration_validation is not None and validation is not None
+                else None
+            )
     except TaxDeclarationUploadTooLargeError:
         return _error_response(
             status.HTTP_413_CONTENT_TOO_LARGE,
             "declaration_too_large",
             "Un fichier depasse la taille autorisee.",
+        )
+    except (
+        VatRuleReferenceError,
+        WithholdingRuleReferenceError,
+        WithholdingDeadlineReferenceError,
+        PayrollTaxRuleReferenceError,
+        CorporateIncomeTaxRuleReferenceError,
+        TaxAssurancePolicyError,
+    ):
+        return _error_response(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "tax_assurance_reference_error",
+            "Un referentiel requis pour l'assurance fiscale est indisponible.",
         )
     except (
         DeclarationSourceReadError,
@@ -442,8 +500,8 @@ async def reconcile_tax_declaration_ledger(
     ):
         return _error_response(
             status.HTTP_400_BAD_REQUEST,
-            "vat_ledger_reconciliation_error",
-            "Le rapprochement TVA avec le Grand Livre a echoue.",
+            "tax_ledger_reconciliation_error",
+            "Le rapprochement fiscal avec le Grand Livre a echoue.",
         )
     finally:
         for upload in uploads:
@@ -454,6 +512,14 @@ async def reconcile_tax_declaration_ledger(
         evidence=[_evidence_response(item) for item in evidence],
         validation=(
             _validation_response(validation) if validation is not None else None
+        ),
+        declaration_validation=(
+            _validation_response(declaration_validation)
+            if declaration_validation is not None
+            else None
+        ),
+        assurance=(
+            _assurance_response(assurance) if assurance is not None else None
         ),
     )
 
@@ -472,6 +538,9 @@ async def reconcile_tax_declaration_supporting_documents(
     invoices_file: Annotated[UploadFile, File()],
     declaration_currency: Annotated[str, Form()],
     tolerance: Annotated[Decimal, Form()] = Decimal("0"),
+    declaration_type: Annotated[TaxDeclarationType, Form()] = TaxDeclarationType.VAT,
+    record_selector_field: Annotated[str, Form()] = "line_code",
+    declaration_amount_field: Annotated[str, Form()] = "tax_amount",
     payments_file: Annotated[UploadFile | None, File()] = None,
     declaration_sheet_name: Annotated[str | None, Form()] = None,
     invoices_sheet_name: Annotated[str | None, Form()] = None,
@@ -508,7 +577,7 @@ async def reconcile_tax_declaration_supporting_documents(
             declaration_result = TaxDeclarationIngestionService().ingest(
                 declaration_path,
                 content_type=declaration_file.content_type,
-                expected_type=TaxDeclarationType.VAT,
+                expected_type=declaration_type,
                 sheet_name=declaration_sheet_name,
                 file_name=Path(
                     declaration_file.filename or "declaration.upload",
@@ -525,6 +594,7 @@ async def reconcile_tax_declaration_supporting_documents(
                 invoices_path,
                 invoices_reference,
                 sheet_name=invoices_sheet_name,
+                declaration_type=declaration_type,
             )
             payments_reference: SourceReference | None = None
             payments: tuple[PaymentEvidence, ...] = ()
@@ -546,6 +616,8 @@ async def reconcile_tax_declaration_supporting_documents(
                     payments,
                     declaration_currency=declaration_currency,
                     tolerance=tolerance,
+                    record_selector_field=record_selector_field,
+                    declaration_amount_field=declaration_amount_field,
                 )
                 if declaration_result.declaration is not None
                 else None
@@ -564,7 +636,7 @@ async def reconcile_tax_declaration_supporting_documents(
         return _error_response(
             status.HTTP_400_BAD_REQUEST,
             "supporting_document_reconciliation_error",
-            "Le rapprochement TVA avec les pieces justificatives a echoue.",
+            "Le rapprochement fiscal avec les pieces justificatives a echoue.",
         )
     finally:
         for upload in uploads:
@@ -629,6 +701,57 @@ async def _save_upload(
             if total_size > max_size_bytes:
                 raise TaxDeclarationUploadTooLargeError
             target.write(chunk)
+
+
+def _validate_declaration(
+    settings: Settings,
+    declaration: CanonicalTaxDeclaration,
+    *,
+    period_end: date | None,
+    filing_date: date | None,
+    tolerance: Decimal,
+) -> TaxDeclarationValidationReport:
+    if declaration.declaration_type is TaxDeclarationType.VAT:
+        return VatDeclarationValidator().validate(
+            declaration,
+            load_vat_validation_rules(Path(settings.vat_validation_rules_path)),
+            period_end=period_end,
+            filing_date=filing_date,
+        )
+    if declaration.declaration_type is TaxDeclarationType.WITHHOLDING_TAX:
+        return WithholdingDeclarationValidator().validate(
+            declaration,
+            load_withholding_validation_rules(
+                Path(settings.withholding_validation_rules_path),
+            ),
+            period_end=period_end,
+            filing_date=filing_date,
+            deadline_rules=load_withholding_deadline_rules(
+                Path(settings.withholding_deadline_rules_path),
+            ),
+            tolerance=tolerance,
+        )
+    if declaration.declaration_type is TaxDeclarationType.PAYROLL_TAX:
+        return PayrollTaxDeclarationValidator().validate(
+            declaration,
+            load_payroll_tax_validation_rules(
+                Path(settings.payroll_tax_validation_rules_path),
+            ),
+            period_end=period_end,
+            filing_date=filing_date,
+            tolerance=tolerance,
+        )
+    if declaration.declaration_type is TaxDeclarationType.CORPORATE_INCOME_TAX:
+        return CorporateIncomeTaxDeclarationValidator().validate(
+            declaration,
+            load_corporate_income_tax_validation_rules(
+                Path(settings.corporate_income_tax_validation_rules_path),
+            ),
+            period_end=period_end,
+            filing_date=filing_date,
+            tolerance=tolerance,
+        )
+    raise ValueError("unsupported declaration type")
 
 
 def _to_response(
@@ -734,6 +857,9 @@ def _decimal_text(value: Decimal | None) -> str | None:
 
 def _evidence_response(evidence: VatLedgerEvidence) -> VatLedgerEvidenceResponse:
     return VatLedgerEvidenceResponse(
+        declaration_type=evidence.declaration_type.value,
+        record_selector_field=evidence.record_selector_field,
+        declaration_amount_field=evidence.declaration_amount_field,
         declaration_line=evidence.declaration_line,
         currency=evidence.currency,
         amount=str(evidence.amount),

@@ -1,1 +1,390 @@
-source_id,source_type,title,version,block_reference,block_type,theme,text
+source_id,source_type,title,version,applicable_from,applicable_to,source_url,applicability_status,block_reference,block_type,theme,text
+Loi de finances 2024 du Burkina Faso - modifications RAS,law,Loi de finances 2024 du Burkina Faso - modifications RAS,"Loi de finances 2024, articles 16 et 18",2024-01-01,2024-12-31,https://dgi.bf/wp-content/uploads/2023/10/LOI-DE-FINANCES-2024.pdf,confirmed,article 16 modifiant CGI article 207,article,taux RAS residents 2024,"A compter du 1er janvier 2024, l'article 207 fixe la retenue a 5 % du
+montant hors taxes pour les personnes justifiant d'un IFU, reduite a 1 %
+pour les travaux immobiliers et travaux publics, et a 25 % des sommes
+versees aux personnes non salariees sans IFU justifie."
+Loi de finances 2024 du Burkina Faso - modifications RAS,law,Loi de finances 2024 du Burkina Faso - modifications RAS,"Loi de finances 2024, articles 16 et 18",2024-01-01,2024-12-31,https://dgi.bf/wp-content/uploads/2023/10/LOI-DE-FINANCES-2024.pdf,confirmed,article 18 modifiant CGI article 221,article,taux RAS non determines 2024,"A compter du 1er janvier 2024, l'article 221 fixe les taux a 2 % pour les
+vacations d'enseignement et prestations manuelles visees, 5 % pour les
+entites publiques et parapubliques, 10 % pour les prestations intellectuelles
+occasionnelles visees et 20 % pour les autres personnes morales."
+Loi de finances 2025 du Burkina Faso - modifications RAS,law,Loi de finances 2025 du Burkina Faso - modifications RAS,"Loi de finances 2025, articles 20 et 23",2025-01-01,2025-12-31,https://dgi.bf/wp-content/uploads/2026/01/LOI-DE-FINANCES-2025.pdf,confirmed,article 20 modifiant CGI article 207,article,taux RAS residents 2025,"A compter du 1er janvier 2025, l'article 207 fixe la retenue a 2 % du
+montant hors taxes pour les entreprises de travail temporaire, 5 % pour les
+personnes justifiant d'un IFU, 1 % pour les travaux immobiliers et travaux
+publics, et 25 % pour les personnes non salariees sans IFU justifie."
+Loi de finances 2025 du Burkina Faso - modifications RAS,law,Loi de finances 2025 du Burkina Faso - modifications RAS,"Loi de finances 2025, articles 20 et 23",2025-01-01,2025-12-31,https://dgi.bf/wp-content/uploads/2026/01/LOI-DE-FINANCES-2025.pdf,confirmed,article 23 modifiant CGI article 221,article,taux RAS non determines 2025,"A compter du 1er janvier 2025, l'article 221 fixe les taux a 2 % pour les
+vacations d'enseignement et prestations manuelles visees, 5 % pour les
+entites publiques, parapubliques et autres personnes morales sans activite
+lucrative habituelle, et 10 % pour les prestations intellectuelles
+occasionnelles des personnes physiques visees."
+Loi de finances 2026 du Burkina Faso - modifications RAS,law,Loi de finances 2026 du Burkina Faso - modifications RAS,"Journal officiel special du 2 janvier 2026, articles 15 et 16",2026-01-01,,https://dgi.bf/wp-content/uploads/2026/01/JOURNAL-OFFICIEL-N%C2%B001-SPECIAL-LOI-DE-FINANCES-2026.pdf,confirmed,article 15 modifiant CGI article 207,article,taux RAS residents 2026,"A compter du 1er janvier 2026, l'article 207 fixe la retenue a 5 % du
+montant hors taxes pour les personnes justifiant d'un IFU, reduite a 1 %
+pour les travaux immobiliers et travaux publics et a 2 % pour les prestations
+de travail temporaire; le taux est de 25 % pour les personnes non salariees
+sans IFU justifie."
+Loi de finances 2026 du Burkina Faso - modifications RAS,law,Loi de finances 2026 du Burkina Faso - modifications RAS,"Journal officiel special du 2 janvier 2026, articles 15 et 16",2026-01-01,,https://dgi.bf/wp-content/uploads/2026/01/JOURNAL-OFFICIEL-N%C2%B001-SPECIAL-LOI-DE-FINANCES-2026.pdf,confirmed,article 16 modifiant CGI article 221,article,taux RAS non determines 2026,"A compter du 1er janvier 2026, l'article 221 fixe notamment 2 % pour les
+vacations d'enseignement et prestations manuelles visees, 5 % pour les
+entites publiques, parapubliques et personnes morales sans activite lucrative
+habituelle, et 10 % pour les personnes physiques visees. Certaines recettes
+de service d'entites publiques sont exonerees sous conditions de decret et
+d'attestation DGI."
+"Code General des Impots du Burkina Faso - IS, articles 87 a 95",tax_code,"Code General des Impots du Burkina Faso - IS, articles 87 a 95",CGI version 2024; article 89 modifie par la loi n°029-2022/ALT du 24 decembre 2022,2024-01-01,,https://dgi.bf/verification/CGI,confirmed,article 87,article,taux IS,"Art.87.- Le taux de l'impot sur les societes est de 27,5 %. Il s'applique
+sans abattement au benefice imposable des societes."
+"Code General des Impots du Burkina Faso - IS, articles 87 a 95",tax_code,"Code General des Impots du Burkina Faso - IS, articles 87 a 95",CGI version 2024; article 89 modifie par la loi n°029-2022/ALT du 24 decembre 2022,2024-01-01,,https://dgi.bf/verification/CGI,confirmed,articles 88 a 90,article,IMFPIC,"Art.88.- Il est etabli un minimum forfaitaire de perception de l'impot sur
+les societes au titre d'une annee determinee, en fonction du chiffre
+d'affaires hors taxes de la periode ecoulee.
+
+Art.89.- Pour le calcul du minimum, le chiffre d'affaires vise ci-dessus
+est arrondi aux cent mille (100.000) francs CFA inferieurs. Il est fait
+application d'un taux de 0,5 % mais en aucun cas le montant ne peut etre
+inferieur a un million (1.000.000) de francs CFA pour le regime du reel
+normal et trois cent mille (300.000) francs CFA pour le regime du reel
+simplifie.
+
+Art.90.- Les societes nouvellement creees sont exonerees du minimum
+forfaitaire pour leur premier exercice d'exploitation."
+"Code General des Impots du Burkina Faso - IS, articles 87 a 95",tax_code,"Code General des Impots du Burkina Faso - IS, articles 87 a 95",CGI version 2024; article 89 modifie par la loi n°029-2022/ALT du 24 decembre 2022,2024-01-01,,https://dgi.bf/verification/CGI,confirmed,article 91,article,acomptes IS,"Art.91.- L'impot sur les societes donne lieu, au titre de l'exercice
+comptable en cours, au versement de trois acomptes provisionnels egaux
+calcules sur la base de 75 % du montant de l'impot du au titre du dernier
+exercice clos, appele exercice de reference."
+"Code General des Impots du Burkina Faso - IS, articles 87 a 95",tax_code,"Code General des Impots du Burkina Faso - IS, articles 87 a 95",CGI version 2024; article 89 modifie par la loi n°029-2022/ALT du 24 decembre 2022,2024-01-01,,https://dgi.bf/verification/CGI,confirmed,article 95,article,echeance IS,"Art.95.- Les societes sont tenues de declarer, au plus tard le 30 avril de
+chaque annee, le montant de leur resultat imposable afferent a l'exercice
+comptable clos au 31 decembre de l'annee precedente au moyen d'un
+formulaire conforme au modele de l'administration fiscale."
+Declaration des acomptes provisionnels IS - DGI Burkina Faso,official_form,Declaration des acomptes provisionnels IS - DGI Burkina Faso,Fichier DGI publie sous le chemin 2023/10; echeance imprimee non retenue,,,https://dgi.bf/wp-content/uploads/2023/10/DECLARATION-DES-ACOMPTES-PROVISIONNELS-IMPOT-SUR-LES-SOCIETES-.pdf,not_stated,lignes 01 a 05,section,calcul des acomptes IS,"Le formulaire part de l'impot sur les societes ou du minimum forfaitaire du,
+calcule 75 % de ce montant, divise le total en trois acomptes, deduit les
+prelevements supportes justifies et determine le montant de la periode a
+verser."
+Declaration des benefices soumis a l'impot sur les societes - DGI Burkina Faso,official_form,Declaration des benefices soumis a l'impot sur les societes - DGI Burkina Faso,Fichier DGI publie sous le chemin 2023/10,,,https://dgi.bf/wp-content/uploads/2023/10/DECLARATION-DES-BENEFICES-SOUMIS-A-LIMPOT-SUR-LES-SOCIETES.pdf,not_stated,en-tete et exercice,section,periode et regime IS,"L'imprime distingue le regime du reel normal du regime du reel simplifie et
+demande les dates de debut et de fin de l'exercice declare."
+Declaration des benefices soumis a l'impot sur les societes - DGI Burkina Faso,official_form,Declaration des benefices soumis a l'impot sur les societes - DGI Burkina Faso,Fichier DGI publie sous le chemin 2023/10,,,https://dgi.bf/wp-content/uploads/2023/10/DECLARATION-DES-BENEFICES-SOUMIS-A-LIMPOT-SUR-LES-SOCIETES.pdf,not_stated,identification de l'entreprise,section,identification IS et CGA,"L'identification comprend notamment la raison sociale, les activites, la date
+de debut d'activite, l'IFU, le registre de commerce, l'adhesion a un centre de
+gestion agree et le regime d'agrement."
+"Code General des Impots du Burkina Faso - IUTS, articles 112, 113 et 116",tax_code,"Code General des Impots du Burkina Faso - IUTS, articles 112, 113 et 116",CGI version 2024; article 113 modifie par la loi n°042-2018/AN du 18 decembre 2018,2024-01-01,,https://dgi.bf/verification/CGI,confirmed,article 112,article,bareme IUTS,"Art.112.- L'impot unique sur les traitements et salaires est calcule et
+retenu mensuellement par l'employeur pour le compte du Tresor public.
+
+Les taux applicables au revenu mensuel imposable sont fixes comme suit,
+pour chaque tranche de revenu : 0 a 30.000 francs CFA : 0 % ; 30.100 a
+50.000 : 12,10 % ; 50.100 a 80.000 : 13,90 % ; 80.100 a 120.000 : 15,70 % ;
+120.100 a 170.000 : 18,40 % ; 170.100 a 250.000 : 21,70 % ; 250.100 et
+au-dessus : 25 %."
+"Code General des Impots du Burkina Faso - IUTS, articles 112, 113 et 116",tax_code,"Code General des Impots du Burkina Faso - IUTS, articles 112, 113 et 116",CGI version 2024; article 113 modifie par la loi n°042-2018/AN du 18 decembre 2018,2024-01-01,,https://dgi.bf/verification/CGI,confirmed,article 113 paragraphe 1,article,reduction charges de famille,"Art.113.- 1) Sur le montant de l'impot ainsi calcule, il est pratique une
+reduction d'impot pour charges de famille comme suit : 1 charge : 8 % ;
+2 charges : 10 % ; 3 charges : 12 % ; 4 charges : 14 %."
+"Code General des Impots du Burkina Faso - IUTS, articles 112, 113 et 116",tax_code,"Code General des Impots du Burkina Faso - IUTS, articles 112, 113 et 116",CGI version 2024; article 113 modifie par la loi n°042-2018/AN du 18 decembre 2018,2024-01-01,,https://dgi.bf/verification/CGI,confirmed,article 116 paragraphe 1,article,echeance IUTS,"Art.116.- 1) Les retenues afferentes aux paiements effectues au titre d'un
+mois determine, doivent etre declarees et versees dans les dix (10)
+premiers jours du mois suivant, a la caisse du Receveur des impots de
+rattachement de la personne qui les a operees."
+Instruction administrative DGI sur le domicile fiscal en matiere d'IUTS,administrative_instruction,Instruction administrative DGI sur le domicile fiscal en matiere d'IUTS,Instruction administrative du 30 novembre 2020,2020-11-30,,https://dgi.bf/wp-content/uploads/2023/10/INSTRUCTION-ADMINISTRATIVE-PORTANT-SUR-LA-DEFINITION-DU-DOMICILE-FISCAL-EN-MATIERE-DIUTS.pdf,confirmed,section 1,section,criteres de domicile fiscal IUTS,"En l'absence de convention applicable, l'instruction presente trois criteres
+non cumulatifs: foyer d'habitation permanent, centre des interets vitaux ou
+sejour habituel au Burkina Faso. Le sejour habituel est apprecie sur au moins
+183 jours, continus ou non, sur douze mois."
+Instruction administrative DGI sur le domicile fiscal en matiere d'IUTS,administrative_instruction,Instruction administrative DGI sur le domicile fiscal en matiere d'IUTS,Instruction administrative du 30 novembre 2020,2020-11-30,,https://dgi.bf/wp-content/uploads/2023/10/INSTRUCTION-ADMINISTRATIVE-PORTANT-SUR-LA-DEFINITION-DU-DOMICILE-FISCAL-EN-MATIERE-DIUTS.pdf,confirmed,section 2,section,priorite des conventions fiscales,"Lorsqu'une convention internationale de non-double imposition est applicable,
+sa definition du domicile pour les revenus salaries doit etre examinee avant
+la definition interne."
+Declaration de versement IUTS et TPA - DGI Burkina Faso,official_form,Declaration de versement IUTS et TPA - DGI Burkina Faso,Fichier DGI publie sous le chemin 2023/10; numerotation historique du code,,,https://dgi.bf/wp-content/uploads/2023/10/DECLARATION-DE-VERSEMENT-DE-RETENUE-DE-LIMPOT-UNIQUE-SUR-LES-TRAITEMENTS-ET-SALAIRES-IUTS-ET-TAXE-PATRONAL-DAPPRENTISSAGE-TPA.pdf,not_stated,rubrique IV page 1,section,synthese IUTS,"La synthese IUTS comporte le nombre de salaries, le total des salaires bruts
+et le total de l'IUTS du."
+Declaration de versement IUTS et TPA - DGI Burkina Faso,official_form,Declaration de versement IUTS et TPA - DGI Burkina Faso,Fichier DGI publie sous le chemin 2023/10; numerotation historique du code,,,https://dgi.bf/wp-content/uploads/2023/10/DECLARATION-DE-VERSEMENT-DE-RETENUE-DE-LIMPOT-UNIQUE-SUR-LES-TRAITEMENTS-ET-SALAIRES-IUTS-ET-TAXE-PATRONAL-DAPPRENTISSAGE-TPA.pdf,not_stated,rubrique IV page 2,section,detail IUTS par salarie,"L'etat annexe ventile par salarie les noms et prenoms, salaires bruts, bases
+imposables, nombre de charges et montant d'IUTS."
+Code General des Impots du Burkina Faso - Impot sur les revenus fonciers (articles 120 a 128) et retenue a la source sur les loyers (articles 215 a 219),tax_code,Code General des Impots du Burkina Faso - Impot sur les revenus fonciers (articles 120 a 128) et retenue a la source sur les loyers (articles 215 a 219),"Texte consolide dgi.bf (loi adoptee le 20 decembre 2017, fichier LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf) - A CONFIRMER par rapprochement avec la derniere loi de finances en vigueur",2018-01-01,,https://dgi.bf/wp-content/uploads/2023/10/LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf,confirmed,articles 120 a 123,article,loyers,"Art.120.- L'impot sur les revenus fonciers (IRF), percu au profit du
+budget de l'Etat, est applicable aux revenus de la location des immeubles
+batis ou non batis quel que soit leur usage, ainsi que les revenus
+accessoires.
+Sont egalement soumis a l'impot, les gains resultant des sous-locations
+d'immeubles batis ou non batis et des baux a construction.
+
+Art.121.- L'impot est du par les personnes beneficiaires de revenus
+fonciers.
+Sont compris dans la categorie des revenus fonciers :
+- 1° les revenus des proprietes baties telles que les maisons et usines
+  ainsi que ceux provenant de l'outillage des etablissements industriels
+  attaches au fonds a perpetuelle demeure, ou reposant sur des fondations
+  speciales faisant corps avec l'ensemble, et de toutes installations
+  commerciales ou industrielles assimilables a des constructions ;
+- 2° la location du droit d'affichage, de la concession du droit
+  d'exploitation des carrieres, de redevances analogues ayant leur
+  origine dans le droit de propriete ou d'usufruit ;
+- 3° les revenus des proprietes non baties de toute nature y compris ceux
+  des terrains occupes par des carrieres et mines.
+
+Art.122.- Ne sont pas soumis a l'impot sur les revenus fonciers :
+1) Les loyers de toute nature d'immeubles appartenant a des personnes
+   morales soumises a l'impot sur les societes.
+2) Les loyers de toute nature d'immeubles appartenant a l'Etat, aux
+   collectivites territoriales et a leurs etablissements publics n'ayant
+   pas un caractere industriel et commercial.
+3) Les loyers des chambres d'hotel et d'etablissements assimiles.
+4) Les loyers dont le cumul par bailleur n'excede pas vingt mille
+   (20 000) francs CFA par mois.
+5) Les personnes salariees retraitees des secteurs public et prive et les
+   conjoints survivants de retraites dans la limite d'un seul immeuble,
+   sous reserve que le bail ou le cumul des baux sur l'immeuble loue
+   n'excede pas cinq cent mille (500 000) francs CFA et que ledit
+   immeuble ait ete acquis ou construit pendant la periode d'activite.
+   Le choix de l'immeuble objet du bail ou des baux exoneres est
+   definitif. Lorsque le bail ou le cumul des baux depasse cinq cent
+   mille (500 000) francs CFA, le supplement de loyer est soumis a
+   l'impot sur les revenus fonciers aux conditions de droit commun.
+   Pour le benefice effectif de cette mesure, les interesses doivent
+   adresser au directeur general des impots une demande comprenant les
+   pieces justificatives de leur statut ainsi que tout document attestant
+   de l'acquisition ou de la construction de l'immeuble pendant la
+   periode d'activite et une copie du contrat de bail dument enregistre
+   ou de la quittance de renouvellement du bail. Le benefice de
+   l'exoneration constate par decision du directeur general des impots
+   prend effet a compter de la date d'introduction de la demande.
+6) Les entreprises publiques ou privees ayant pour principal objet la
+   promotion de l'habitat social peuvent beneficier de l'exoneration de
+   l'impot sur les revenus fonciers par decret pris en Conseil des
+   Ministres sur proposition du Ministre charge des Finances apres avis
+   du Ministre charge de l'Habitat.
+
+Art.123.- Sauf dispositions expresses contraires, l'impot sur les revenus
+fonciers s'applique :
+- aux revenus des immeubles situes au Burkina Faso ;
+- aux revenus des immeubles situes a l'etranger lorsque le bailleur
+  reside au Burkina Faso ou y exerce ses activites, sous reserve des
+  conventions internationales relatives aux doubles impositions."
+Code General des Impots du Burkina Faso - Impot sur les revenus fonciers (articles 120 a 128) et retenue a la source sur les loyers (articles 215 a 219),tax_code,Code General des Impots du Burkina Faso - Impot sur les revenus fonciers (articles 120 a 128) et retenue a la source sur les loyers (articles 215 a 219),"Texte consolide dgi.bf (loi adoptee le 20 decembre 2017, fichier LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf) - A CONFIRMER par rapprochement avec la derniere loi de finances en vigueur",2018-01-01,,https://dgi.bf/wp-content/uploads/2023/10/LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf,confirmed,articles 125 et 126,article,loyers,"Art.125.- 1) Le revenu net imposable est egal au loyer brut, taxe sur la
+valeur ajoutee non comprise, acquis par le bailleur au cours du mois ou
+de la periode consideree et au titre de chaque location, sous deduction
+d'un abattement forfaitaire de 50 %.
+
+2) Le loyer brut comprend les produits de toute nature provenant de la
+location ou de la sous-location d'immeubles, notamment :
+- les loyers ;
+- les depenses incombant normalement au bailleur, mises
+  contractuellement a la charge du locataire ;
+- la valeur mensuelle de l'amortissement des investissements realises par
+  le preneur calcule selon la duree du contrat, majoree des indemnites,
+  avantages ou prestations de toute nature servis au bailleur en
+  execution d'un bail a construction ;
+- les supplements de loyers et autres revenus exceptionnels ;
+- les sommes recues des locataires a titre de depot de garantie, des lors
+  qu'elles sont utilisees par le bailleur pour couvrir des loyers.
+
+Art.126.- Le montant de l'impot sur les revenus fonciers est obtenu par
+application des taux progressifs par tranches ci-apres au revenu net
+imposable :
+- tranche de 0 a 100 000 francs CFA : 18 % ;
+- au-dessus de 100 000 francs CFA : 25 %."
+Code General des Impots du Burkina Faso - Impot sur les revenus fonciers (articles 120 a 128) et retenue a la source sur les loyers (articles 215 a 219),tax_code,Code General des Impots du Burkina Faso - Impot sur les revenus fonciers (articles 120 a 128) et retenue a la source sur les loyers (articles 215 a 219),"Texte consolide dgi.bf (loi adoptee le 20 decembre 2017, fichier LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf) - A CONFIRMER par rapprochement avec la derniere loi de finances en vigueur",2018-01-01,,https://dgi.bf/wp-content/uploads/2023/10/LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf,confirmed,articles 215 a 219,article,bail,"Art.215.- Sont soumis a une retenue a la source, les loyers des immeubles
+batis ou non batis pris a bail par les locataires suivants etablis au
+Burkina Faso :
+- les personnes physiques ou morales relevant du regime reel
+  d'imposition ;
+- l'Etat, les collectivites territoriales et les etablissements publics ;
+- les associations, les fondations, les organisations non
+  gouvernementales, les projets et programmes ;
+- les representations diplomatiques et consulaires ainsi que les
+  organismes internationaux et assimiles.
+
+Art.216.- Le montant de la retenue est egal au montant de l'impot sur les
+revenus fonciers du sur le loyer.
+L'impot est calcule conformement aux dispositions des articles 125 et
+126.
+
+Art.217.- Les retenues d'un mois determine doivent etre reversees au
+service des impots au plus tard le 10 du mois suivant sur un formulaire
+conforme au modele de l'administration fiscale.
+Toutefois, lorsque la periodicite du reglement est superieure a un mois,
+les retenues doivent etre versees au plus tard le 10 du mois suivant la
+periode ecoulee.
+
+Art.218.- Les locataires sont tenus de remettre a leur bailleur un etat
+des versements effectues au service des impots. L'etat des versements
+doit etre vise par le receveur des impots competent et comporter les
+references de la quittance de reglement.
+Cet etat doit contenir les indications suivantes :
+- nom, prenoms, profession, domicile, adresse complete et numero
+  d'identification financier unique (IFU) le cas echeant du locataire ;
+- nom, prenoms, profession, domicile, adresse complete et eventuellement
+  numero d'identification financier unique (IFU) du bailleur ;
+- montant des sommes versees au bailleur ;
+- montant brut du loyer ;
+- periode au titre de laquelle les versements ont ete effectues ;
+- montant de l'impot retenu a la source.
+
+Art.219.- Tout bailleur d'immeuble soumis a la retenue a la source sur les
+loyers est tenu de souscrire au plus tard le 15 fevrier et le 15 aout de
+chaque annee aupres du service des impots du lieu de situation de
+l'immeuble loue, sur un formulaire conforme au modele de l'administration
+fiscale, une declaration indiquant le montant des loyers percus et
+l'impot sur les revenus fonciers acquitte sur lesdits loyers."
+"Code General des Impots du Burkina Faso - Section 3 (Retenue a la source sur les sommes versees aux prestataires non-residents), articles 210 a 214, et definition du domicile fiscal (article 107)",tax_code,"Code General des Impots du Burkina Faso - Section 3 (Retenue a la source sur les sommes versees aux prestataires non-residents), articles 210 a 214, et definition du domicile fiscal (article 107)","Texte consolide dgi.bf (loi adoptee le 20 decembre 2017, fichier LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf) - A CONFIRMER par rapprochement avec la derniere loi de finances et toute convention fiscale bilaterale applicable au prestataire concerne",2018-01-01,,https://dgi.bf/wp-content/uploads/2023/10/LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf,confirmed,articles 210 et 211,article,prestataire non resident,"Art.210.- Sous reserve des dispositions des conventions internationales
+relatives aux doubles impositions, une retenue a la source est operee sur
+les sommes que les personnes physiques ou morales non residentes au
+Burkina Faso percoivent en remuneration de prestations de toute nature
+fournies ou utilisees au Burkina Faso.
+
+Art.211.- La retenue a la source s'applique aux remunerations payees
+notamment :
+- pour la fourniture d'etudes et de conseils de toute nature, de
+  prestations d'ingenieries, d'informatique, de comptabilite, d'audit,
+  de publicite, de formation, de communication, d'assistance technique ;
+- pour la participation aux frais de siege ;
+- pour l'usage ou la concession de l'usage d'un brevet, d'une marque de
+  fabrique de commerce, d'une franchise commerciale, d'un dessin, d'un
+  modele, d'un plan, d'une formule ou d'un procede secret ainsi que d'un
+  equipement industriel, commercial ou scientifique ne constituant pas un
+  bien immobilier ;
+- pour les informations ayant trait a une experience acquise dans le
+  domaine industriel, commercial, agricole ou scientifique ;
+- pour l'usage ou la concession de l'usage d'un droit d'auteur sur une
+  oeuvre litteraire, artistique ou scientifique y compris les productions
+  cinematographiques, televisuelles, audiovisuelles, radiophoniques,
+  theatrales et artistiques ;
+- aux artistes de theatre et de music-hall, musiciens-danseurs, acteurs,
+  comediens, modeles et autres artistes de spectacles et de la mode et
+  aux sportifs, non domicilies au Burkina Faso, qui participent a des
+  manifestations organisees ou produites au Burkina Faso."
+"Code General des Impots du Burkina Faso - Section 3 (Retenue a la source sur les sommes versees aux prestataires non-residents), articles 210 a 214, et definition du domicile fiscal (article 107)",tax_code,"Code General des Impots du Burkina Faso - Section 3 (Retenue a la source sur les sommes versees aux prestataires non-residents), articles 210 a 214, et definition du domicile fiscal (article 107)","Texte consolide dgi.bf (loi adoptee le 20 decembre 2017, fichier LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf) - A CONFIRMER par rapprochement avec la derniere loi de finances et toute convention fiscale bilaterale applicable au prestataire concerne",2018-01-01,,https://dgi.bf/wp-content/uploads/2023/10/LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf,confirmed,articles 212 a 214,article,taux,"Art.212.- Le taux de la retenue a la source est fixe a 20 % du montant net
+des sommes versees aux personnes non etablies au Burkina Faso, y compris
+les sommes et frais accessoires exposes par le debiteur au profit du
+prestataire.
+Le montant de la retenue ne saurait etre pris en charge par le debiteur.
+
+Art.213.- Sont redevables de la retenue a la source de 20 % :
+- les personnes physiques ou morales relevant d'un impot sur les
+  benefices selon un regime du reel ;
+- l'Etat, les collectivites territoriales et les etablissements publics ;
+- les projets et programmes ;
+- les organisations non gouvernementales, les associations et les
+  fondations.
+
+Art.214.- Les retenues afferentes aux sommes mises en paiement au cours
+d'un mois donne doivent etre versees au plus tard le 20 du mois suivant au
+service des impots de rattachement.
+
+Les versements sont effectues au vu d'une declaration reglementaire
+comportant pour chaque personne faisant l'objet d'une retenue, les
+indications suivantes :
+- nom(s) et prenom(s) ou raison sociale et forme juridique ;
+- activite ou profession ;
+- adresses geographique, boite postale et numero de telephone ;
+- nationalite ;
+- nature des prestations fournies ;
+- date et montant des paiements ;
+- montant de la retenue operee.
+
+La declaration doit etre accompagnee pour chaque prestataire precompte
+d'une attestation individuelle de retenue a la source etablie conformement
+au modele prescrit par l'administration."
+"Code General des Impots du Burkina Faso - Section 3 (Retenue a la source sur les sommes versees aux prestataires non-residents), articles 210 a 214, et definition du domicile fiscal (article 107)",tax_code,"Code General des Impots du Burkina Faso - Section 3 (Retenue a la source sur les sommes versees aux prestataires non-residents), articles 210 a 214, et definition du domicile fiscal (article 107)","Texte consolide dgi.bf (loi adoptee le 20 decembre 2017, fichier LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf) - A CONFIRMER par rapprochement avec la derniere loi de finances et toute convention fiscale bilaterale applicable au prestataire concerne",2018-01-01,,https://dgi.bf/wp-content/uploads/2023/10/LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf,confirmed,"article 107, paragraphe 2",article,residence fiscale,"Sous reserve des dispositions des conventions internationales relatives
+aux doubles impositions, sont considerees comme ayant leur domicile
+fiscal au Burkina Faso :
+- 1° les personnes qui y possedent ou y jouissent d'un foyer d'habitation
+  permanent ;
+- 2° les personnes qui, sans disposer au Burkina Faso d'un foyer
+  d'habitation permanent dans les conditions definies au point 1°, ont
+  neanmoins au Burkina Faso le centre de leurs interets vitaux ;
+- 3° dans le cas ou les personnes n'ont pas de foyer d'habitation
+  permanent au Burkina Faso ou si le centre de leurs interets vitaux ne
+  peut pas etre determine, elles sont considerees comme ayant leur
+  domicile au Burkina Faso si elles y sejournent de facon habituelle
+  pendant au moins cent quatre-vingt-trois (183) jours de facon continue
+  ou non sur une periode de douze (12) mois."
+"Code General des Impots du Burkina Faso - Section 2 (Retenue a la source sur les sommes versees aux prestataires residents), articles 206 a 209",tax_code,"Code General des Impots du Burkina Faso - Section 2 (Retenue a la source sur les sommes versees aux prestataires residents), articles 206 a 209","Texte consolide dgi.bf (loi adoptee le 20 decembre 2017, fichier LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf) - A CONFIRMER par rapprochement avec la derniere loi de finances en vigueur, le taux de l'article 207 pouvant etre revu chaque annee (voir docs/reference/bf-withholding-validation-rules.csv)",2018-01-01,,https://dgi.bf/wp-content/uploads/2023/10/LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf,confirmed,article 206,article,prestataire resident,"Art.206.- 1) Sont soumises a une retenue a la source les sommes versees en
+remuneration de prestations de toute nature fournies ou utilisees sur le
+territoire national, par des debiteurs etablis au Burkina Faso :
+- a des personnes qui y resident ;
+- ou a des personnes non residentes dans la mesure ou elles y disposent
+  d'un etablissement stable tel que defini a l'article 47.
+
+2) Sont notamment consideres comme debiteurs etablis au Burkina Faso :
+- les personnes physiques ou morales relevant de l'impot sur les societes,
+  de l'impot sur les benefices industriels, commerciaux et agricoles ou de
+  l'impot sur les benefices des professions non commerciales, selon le
+  regime du reel d'imposition ;
+- l'Etat, les collectivites territoriales et les etablissements publics ;
+- les projets et programmes ;
+- les organisations non gouvernementales, les associations et les
+  fondations.
+
+3) Par prestation de toute nature fournie ou utilisee, on entend toute
+operation de nature lucrative autre qu'une vente de biens ou une location
+d'immeubles dont le montant est egal ou superieur a cinquante mille
+(50 000) francs CFA hors taxes.
+
+4) La retenue n'est pas due sur les sommes versees aux contribuables
+relevant de la direction des grandes entreprises et a ceux beneficiant
+d'une exoneration totale des impots sur les benefices. Pour beneficier de
+cette exoneration, les contribuables doivent presenter leur attestation
+d'exoneration delivree par la direction generale des impots."
+"Code General des Impots du Burkina Faso - Section 2 (Retenue a la source sur les sommes versees aux prestataires residents), articles 206 a 209",tax_code,"Code General des Impots du Burkina Faso - Section 2 (Retenue a la source sur les sommes versees aux prestataires residents), articles 206 a 209","Texte consolide dgi.bf (loi adoptee le 20 decembre 2017, fichier LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf) - A CONFIRMER par rapprochement avec la derniere loi de finances en vigueur, le taux de l'article 207 pouvant etre revu chaque annee (voir docs/reference/bf-withholding-validation-rules.csv)",2018-01-01,,https://dgi.bf/wp-content/uploads/2023/10/LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf,confirmed,article 207,article,taux,"Art.207.- Le taux de la retenue est fixe a :
+- 5 % du montant hors taxes des sommes versees pour les personnes
+  justifiant d'une immatriculation a l'identifiant financier unique (IFU).
+  Ce taux est reduit a 1 % pour les travaux immobiliers et les travaux
+  publics ;
+- 25 % du montant des sommes versees pour les personnes non salariees ne
+  justifiant pas d'une immatriculation a l'identifiant financier unique
+  (IFU)."
+"Code General des Impots du Burkina Faso - Section 2 (Retenue a la source sur les sommes versees aux prestataires residents), articles 206 a 209",tax_code,"Code General des Impots du Burkina Faso - Section 2 (Retenue a la source sur les sommes versees aux prestataires residents), articles 206 a 209","Texte consolide dgi.bf (loi adoptee le 20 decembre 2017, fichier LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf) - A CONFIRMER par rapprochement avec la derniere loi de finances en vigueur, le taux de l'article 207 pouvant etre revu chaque annee (voir docs/reference/bf-withholding-validation-rules.csv)",2018-01-01,,https://dgi.bf/wp-content/uploads/2023/10/LOI-PORTANT-CODE-GENERAL-DES-IMPOTS-FINAL.pdf,confirmed,articles 208 et 209,article,modalites,"Art.208.- 1) Les retenues afferentes aux paiements effectues au cours d'un
+mois determine doivent etre versees au plus tard le 20 du mois suivant
+aupres du service des impots du lieu du siege social ou du principal
+etablissement ou du domicile de la partie versante.
+
+2) Les versements sont effectues au vu d'une declaration reglementaire
+comportant pour chaque prestataire faisant l'objet d'une retenue les
+indications suivantes :
+- nom et prenom(s) ou raison sociale et forme juridique du prestataire ;
+- profession ou activite ;
+- numero d'identification financier unique (IFU) ;
+- adresses geographique et postale ;
+- date et montant de la facture ;
+- date et montant des paiements ;
+- retenue operee.
+
+3) La declaration doit etre accompagnee, pour chaque prestataire
+precompte, d'une attestation individuelle de retenue a la source etablie
+conformement au modele prescrit par l'administration.
+
+Art.209.- 1) Les retenues supportees au cours d'un exercice donne sont
+imputables sur les cotisations du minimum forfaitaire de perception ou sur
+les acomptes provisionnels exigibles au titre du meme exercice.
+
+2) Si le montant des retenues excede celui du minimum forfaitaire de
+perception ou des acomptes provisionnels, l'excedent est impute sur la ou
+les cotisations ulterieures d'impot sur les societes, d'impot sur les
+benefices industriels, commerciaux et agricoles ou d'impot sur les
+benefices des professions non commerciales.
+
+3) Les credits de retenues residuels sont imputables exclusivement sur les
+cotisations de l'impot sur les societes, de l'impot sur les benefices
+industriels, commerciaux et agricoles ou de l'impot sur les benefices des
+professions non commerciales dues au titre de l'exercice au cours duquel
+les prelevements ont ete supportes et des exercices suivants."
+Instruction administrative DGI relative a la base d'imposition de la TVA,administrative_instruction,Instruction administrative DGI relative a la base d'imposition de la TVA,Instruction DGI publiee sous le chemin 2023/10; date exacte a confirmer,,,https://dgi.bf/wp-content/uploads/2023/10/INSTRUCTION-ADMINISTRATIVE-PORTANT-SUR-LA-BASE-DIMPOSITION-DE-LA-TAXE-SUR-LA-VALEUR-AJOUTEE.pdf,not_stated,sections 1 et 2,section,composition de la base TVA,"L'instruction precise les elements du prix inclus dans la base TVA et les
+elements pouvant en etre exclus, notamment certaines reductions de prix,
+indemnites, aides et debours, sous reserve des conditions et justificatifs
+propres a chaque situation."
+Instruction administrative DGI relative a la base d'imposition de la TVA,administrative_instruction,Instruction administrative DGI relative a la base d'imposition de la TVA,Instruction DGI publiee sous le chemin 2023/10; date exacte a confirmer,,,https://dgi.bf/wp-content/uploads/2023/10/INSTRUCTION-ADMINISTRATIVE-PORTANT-SUR-LA-BASE-DIMPOSITION-DE-LA-TAXE-SUR-LA-VALEUR-AJOUTEE.pdf,not_stated,section 3,section,reconstitution hors taxes,"Lorsqu'une operation taxable est realisee sans facturation de TVA,
+l'instruction traite le montant comme toutes taxes comprises pour
+reconstituer la base hors taxe. Ce controle necessite la transaction et ses
+pieces, non la seule declaration agregee."
+"Code General des Impots du Burkina Faso - TVA, articles 317 et 334",tax_code,"Code General des Impots du Burkina Faso - TVA, articles 317 et 334","CGI version 2024, article 317 et article 334 modifie par la loi n°029-2022/ALT du 24 decembre 2022",2024-01-01,,https://dgi.bf/verification/CGI,confirmed,article 317,article,taux TVA,"Art.317.- Le taux de la TVA est fixe a 18 %.
+
+Ce taux est reduit a 10 % pour les prestations d'hebergement et de
+restauration fournies par les hotels, les restaurants et organismes
+assimiles agrees."
+"Code General des Impots du Burkina Faso - TVA, articles 317 et 334",tax_code,"Code General des Impots du Burkina Faso - TVA, articles 317 et 334","CGI version 2024, article 317 et article 334 modifie par la loi n°029-2022/ALT du 24 decembre 2022",2024-01-01,,https://dgi.bf/verification/CGI,confirmed,article 334 paragraphe 1,article,echeance TVA,"Art.334.- 1) Tout redevable de la TVA doit deposer aupres de son service
+des impots de rattachement au plus tard le 15 de chaque mois une
+declaration de la TVA, sur un formulaire conforme au modele de
+l'administration fiscale, au titre des operations intervenues pendant le
+mois precedent.
+
+La declaration doit etre deposee dans les memes delais lorsque l'assujetti
+n'a effectue au cours d'un mois determine aucune operation imposable."
+Instruction administrative DGI relative aux exonerations de TVA,administrative_instruction,Instruction administrative DGI relative aux exonerations de TVA,Instruction administrative 2020 publiee par la DGI,,,https://dgi.bf/wp-content/uploads/2023/10/INSTRUCTION-ADMINISTRATIVE-PORTANT-SUR-LES-EXONERATIONS-DE-LA-TAXE-SUR-LA-VALEUR-AJOUTEE.pdf,not_stated,sections 1 et 2,section,legalite des exonerations TVA,"L'instruction rappelle qu'une exoneration de TVA doit reposer sur un texte
+legislatif ou une convention internationale regulierement ratifiee. Une
+mention contractuelle ou administrative sans fondement juridique suffisant
+ne constitue pas, a elle seule, une exoneration valide."
+Declaration de la taxe sur la valeur ajoutee - DGI Burkina Faso,official_form,Declaration de la taxe sur la valeur ajoutee - DGI Burkina Faso,Fichier DGI publie sous le chemin 2023/10,,,https://dgi.bf/wp-content/uploads/2023/10/DECLARATION-DE-LA-TAXE-SUR-LA-VALEUR-AJOUTEE.pdf,not_stated,lignes 01 a 14,section,operations TVA,"Les lignes 01 a 13 ventilent les operations taxables, les marches et contrats,
+les exportations et les autres operations non taxables. La ligne 14 porte le
+montant total des operations, calcule comme la somme des lignes 01 a 13."
+Declaration de la taxe sur la valeur ajoutee - DGI Burkina Faso,official_form,Declaration de la taxe sur la valeur ajoutee - DGI Burkina Faso,Fichier DGI publie sous le chemin 2023/10,,,https://dgi.bf/wp-content/uploads/2023/10/DECLARATION-DE-LA-TAXE-SUR-LA-VALEUR-AJOUTEE.pdf,not_stated,lignes 15 a 19,section,TVA brute,"La ligne 15 concerne les operations au taux normal de 18 %, la ligne 16 les
+operations au taux reduit de 10 %, les lignes 17 et 18 les reversions, et la
+ligne 19 le montant total de TVA brute obtenu par somme des lignes 15 a 18."
+Declaration de la taxe sur la valeur ajoutee - DGI Burkina Faso,official_form,Declaration de la taxe sur la valeur ajoutee - DGI Burkina Faso,Fichier DGI publie sous le chemin 2023/10,,,https://dgi.bf/wp-content/uploads/2023/10/DECLARATION-DE-LA-TAXE-SUR-LA-VALEUR-AJOUTEE.pdf,not_stated,lignes 20 a 27 et synthese,section,TVA nette et credit a reporter,"Les lignes 20 a 27 recensent la TVA deductible, le credit precedent, les
+credits demandes ou non demandes en remboursement et les autres deductions.
+L'imprime calcule ensuite soit la TVA nette a payer, soit le credit de TVA a
+reporter, a partir de la TVA brute et des deductions admises."

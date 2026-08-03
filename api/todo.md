@@ -199,7 +199,17 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 - [x] Brancher un provider embeddings local ou configurable via `sentence-transformers`.
 - [x] Ajouter une factory de provider embeddings configuree par nom.
 - [x] Documenter le flux RAG complet dans `docs/rag-flow-mermaid.md`.
-- [ ] Remplir/valider les squelettes fiscaux puis associer les 13 questions restantes.
+- [x] Remplir/valider les squelettes fiscaux puis associer les questions couvrables.
+- [x] Remplir les 3 squelettes fiscaux (`bf-ras-residents.md`, `bf-ras-non-residents.md`, `bf-loyers.md`) avec le texte litteral extrait du PDF officiel CGI dgi.bf (articles 107, 120-128, 206-219), en `validation_status: draft`.
+- [x] Passer les 3 squelettes a `validation_status: validated` par auto-validation du porteur du projet (indisponibilite d'expert-comptable/fiscaliste au moment de la decision; `validated_by` le mentionne explicitement) et relancer l'export vers `docs/reference/rag-source-corpus.generated.csv` (3 sources exportees, 9 blocs, 0 bloquee).
+- [x] Corriger `RagChunker`/`chunk_corpus_blocks`: un CSV exporte multi-sources faisait attribuer a tort le titre du premier bloc a tous les chunks; nouvelle fonction `chunk_corpus_blocks` (chunking par source), testee.
+- [x] Ajouter un filtre de mots vides francais a `LexicalRetriever` (`api/app/rag_source/lexical_retriever.py`), teste; ameliore le classement sans le resoudre completement (voir limite ci-dessous).
+- [x] Identifier le theme manquant pour chacune des 13 questions `pending_source` (voir `docs/reference/rag-question-expectations.csv` et `docs/rag-corpus-inventory.md`).
+- [x] Ajouter `PROC-001-S6` (exclusion hors perimetre RAS) a `docs/reference/rag-mini-corpus.csv`, sans dependre d'une source fiscale externe; resout RAG-Q015 et RAG-Q016 (retrieval verifie par test).
+- [x] Verifier empiriquement (tests) le retrieval des questions dont la source est desormais validee: RAG-Q011 et RAG-Q017 passent `ready` (top-1 unique et correct); RAG-Q001, Q002, Q004, Q006, Q008, Q012, Q014 restent `pending_source` car le retrieval lexical ne classe pas le bon passage de facon fiable (ex-aequo ou mauvais article en tete) malgre une source validee — 16 questions pretes au total (au lieu de 12).
+- [ ] Racinisation ou embeddings (deja prevus via `sentence-transformers`) pour fiabiliser le retrieval des 7 questions bloquees par la precision lexicale, pas par l'absence de source.
+- [ ] Faire rediger par un expert-comptable ou fiscaliste la doctrine/commentaire manquant pour les 2 questions sans aucun contenu disponible (Q007 honoraires, Q013 loyer/entretien/prestation).
+- [ ] Faire relire par un expert-comptable ou fiscaliste les 3 squelettes fiscaux auto-valides; corriger et re-exporter si une erreur est trouvee.
 
 ## Couche FastAPI Future
 
@@ -431,33 +441,80 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 - [x] Controler le montant IUTS par salarie et l'echeance sans supposer l'option semestrielle.
 - [x] Integrer l'analyse IUTS dans `POST /api/tax-declarations/analyze`.
 - [x] Valider le moteur IUTS: 126 tests declarations/API passes, Ruff et mypy passes.
-- [ ] Sourcer et implementer ensuite la declaration IS.
-- [ ] Couvrir TVA, RAS, IUTS et IS.
-- [ ] Accepter Excel, CSV, XML, PDF, scan et image.
-- [ ] Detecter automatiquement format, structure et encodage.
-- [ ] Definir un schema canonique versionne par declaration.
-- [ ] Conserver valeur source, valeur normalisee et provenance.    
-- [ ] Attribuer un score de confiance a chaque extraction.
-- [ ] Laisser les donnees incertaines non resolues automatiquement.
-- [ ] Collecter CGI, lois, instructions et imprimes officiels DGI.
-- [ ] Versionner chaque source et sa date d'application.
-- [ ] Vectoriser les textes pour recherche et justification.
-- [ ] Structurer assiette, taux, seuil, exception et echeance.
-- [ ] Relier chaque regle a son article officiel.
-- [ ] Interdire au LLM toute decision fiscale finale.
-- [ ] Executer les validations avec un moteur deterministe.
-- [ ] Controler successivement format, completude et coherence.
-- [ ] Controler ensuite regles fiscales et historique.
-- [ ] Rapprocher enfin Grand Livre, pieces et paiements disponibles.
-- [ ] Produire une assurance limitee sans Grand Livre.
-- [ ] Produire une assurance renforcee avec rapprochement comptable.
-- [ ] Detecter dynamiquement IFU et identifiants equivalents.
-- [ ] Rapprocher les partenaires par identifiants et attributs disponibles.
-- [ ] Scorer les doublons sans fusion automatique incertaine.
+- [x] Sourcer et implementer ensuite la declaration IS.
+- [x] Sourcer les imprimes IS et les articles 48, 87, 89, 91, 92 et 95 du CGI DGI (recherche web, a faire valider par un expert-comptable ou fiscaliste avant production; voir `docs/open-questions.md`).
+- [x] Definir le schema canonique IS `bf.is.v1` avec extracteurs CSV/Excel, XML, PDF natif, scan et image.
+- [x] Versionner le taux IS (27,5 %), le plancher IMFPIC par regime et l'echeance annuelle hors du code.
+- [x] Controler le taux IS declare et le plancher IMFPIC declare, sans decision LLM.
+- [x] Integrer l'analyse IS dans `POST /api/tax-declarations/analyze`.
+- [x] Valider le moteur IS: tests unitaires rule loader, extracteurs et service de validation passes.
+- [x] Trouve en testant l'IS via un vrai front (navigateur, pas seulement pytest): `api/.env` local (non versionne) n'avait pas `CORPORATE_INCOME_TAX_VALIDATION_RULES_PATH`, provoquant un 500 "referentiel de validation IS indisponible" en environnement reel — seul `.env.example` avait ete mis a jour. Corrige localement. A verifier: tout environnement de deploiement (staging/prod) cree avant l'ajout de l'IS a probablement le meme trou de configuration.
+- [x] Recalculer l'IMFPIC a 0,5 % du CA annuel HT arrondi aux 100 000 FCFA inferieurs, puis appliquer le plancher par regime.
+- [x] Versionner et controler les traitements IMFPIC explicites: standard, activite exclusive, CGA, cumul CGA/activite exclusive et premier exercice exonere.
+- [x] Valider l'IMFPIC via le service et l'API: 155 tests declarations/API passes, Ruff et mypy passes.
+- [x] Controler les acomptes provisionnels IS via un flux historique du type `analyze-history` (necessite l'IS du de l'exercice precedent). Ordre suivi:
+  - [x] Ajouter un champ optionnel `provisional_installments_paid` a la declaration annuelle IS (simplification documentee dans `docs/open-questions.md`: le vrai formulaire DGI des acomptes est un document distinct non modelise pour l'instant).
+  - [x] Versionner la regle des acomptes (75 % de l'IS du de l'exercice precedent, article 91) dans `docs/reference/bf-is-validation-rules.csv`.
+  - [x] Ajouter `corporate_income_tax_historical_validation.py` (miroir de `vat_historical_validation.py`): continuite des exercices + controle du montant des acomptes.
+  - [x] Brancher l'IS sur `POST /api/tax-declarations/analyze-history` (parametre `declaration_type`, defaut TVA conserve).
+  - [x] Tests: acomptes corrects, acomptes incorrects, exercices non consecutifs, exercice non clos au 31 decembre (403 tests API passes, Ruff et mypy passes).
+  - [x] Ne pas generaliser le controle historique a RAS/IUTS: aucun report ou acompte inter-periodes n'est source dans les referentiels actuels; ajouter un controle uniquement si une future regle officielle l'exige.
+- [x] Couvrir TVA, RAS, IUTS et IS.
+- [x] Accepter Excel, CSV, XML, PDF, scan et image.
+- [x] Detecter automatiquement format, structure et encodage.
+- [x] Definir un schema canonique versionne par declaration.
+- [x] Conserver valeur source, valeur normalisee et provenance.
+- [x] Attribuer un score de confiance a chaque extraction.
+- [x] Laisser les donnees incertaines non resolues automatiquement.
+
+### Phase 1 - Declarations seules, sans Grand Livre
+
+- [ ] Completer la collecte locale des sources officielles 2023-2026 pour TVA, RAS, IUTS et IS, en partant des textes les plus recents puis en reconstruisant les versions anterieures applicables.
+  - [x] Prendre le CGI consolide officiel le plus recent comme referentiel juridique principal: version web DGI 2024; conserver le PDF officiel 2023 comme photographie juridique 2023, avec identite SHA-256 prouvee face au PDF DGI.
+  - [x] Traiter 2023-2026 comme perimetre d'analyse; deduire chaque date d'applicabilite du CGI, des lois de finances et des textes modificatifs, sans l'inferer de l'annee seule.
+  - [ ] Recenser et empreinter les lois de finances 2023, 2024, 2025 et 2026 depuis les sites officiels.
+    - [x] Acquerir et verifier par taille + SHA-256 le CGI 2023, les lois initiales 2023-2026 et la loi rectificative 2024; manifeste de 6 documents et script de rehydratation valides.
+    - [ ] Localiser le texte promulgue officiel de la loi rectificative 2025; son adoption est confirmee mais seul l'expose des motifs est actuellement publie par la DGI.
+  - [ ] Etablir la matrice exhaustive `impot x article CGI x modification legislative x instruction x formulaire x periode`.
+    - [x] Etablir la matrice initiale des 17 articles actuellement controles: 38 intervalles couvrant 2023-2026, sans chevauchement et avec statut de verification explicite.
+    - [ ] Etendre la matrice aux categories attendues encore absentes des moteurs de controles.
+  - [ ] Reconstituer article par article la version applicable en 2023, 2024, 2025 et 2026.
+  - [x] Utiliser instructions et formulaires comme complements pratiques sans prevaloir sur le CGI ou la loi.
+  - [x] Detecter et signaler chaque article modifie, manquant ou contradictoire avec une raison explicite dans l'inventaire et la matrice d'applicabilite.
+  - [ ] Detecter les categories fiscales attendues absentes des referentiels structures.
+  - [ ] Generer ensuite les regles deterministes versionnees avec date, article, URL, empreinte et preuve d'applicabilite.
+- [x] Collecter les sources officielles utiles au perimetre actuel: CGI, lois de finances, instructions et imprimes DGI.
+  - [x] Indexer les extraits CGI, les imprimes de structure TVA/IUTS/IS, les lois de finances RAS 2024-2026 et les instructions contextuelles: 16 sources, 37 blocs, 0 source bloquee.
+  - [x] Inventorier 15 sources officielles (CGI 2023/2024, lois initiales et rectificatives, instructions et imprimes) avec statut d'usage, statut corpus et ecart explicite.
+  - [x] Verifier dans les PDF officiels les articles RAS des lois de finances 2024, 2025 et 2026, puis les rapprocher du referentiel deterministe avant indexation.
+  - [x] Dater l'entree en vigueur du CGI initial au 1er janvier 2018 et resoudre l'ancienne echeance au 20 de l'imprime d'acomptes IS sans la reutiliser.
+  - [x] Qualifier les instructions administratives TVA/IUTS comme contexte seulement, faute de preuves transactionnelles dans les declarations.
+- [x] Versionner chaque source et son applicabilite: dates confirmees pour 10 sources, statut `not_stated` explicite pour les 6 documents officiels sans borne fiable, sans date inventee.
+- [x] Vectoriser les textes valides pour recherche et justification: chargement Markdown, index en memoire, requete vectorisee, URL officielle, priorite CGI/loi sur les formulaires a score egal, citations versionnees et empreinte SHA-256 conservees; 69 tests RAG passes, Ruff et mypy passes.
+- [x] Structurer assiette, taux, seuil, exception et echeance.
+- [x] Relier chaque regle a son article officiel.
+- [x] Interdire au LLM toute decision fiscale finale.
+- [x] Executer les validations avec un moteur deterministe.
+- [x] Controler successivement format, completude et coherence.
+- [x] Controler les regles fiscales TVA, RAS, IUTS et IS, puis l'historique uniquement pour TVA et IS lorsque la regle sourcee depend d'une autre periode.
+- [x] Produire une assurance limitee sans Grand Livre.
+- [x] Detecter dynamiquement IFU et identifiants equivalents: IFU/NIF/TIN/identifiant fiscal ou type source explicite, sans hypothese sur la longueur ou la forme de la valeur; type et zeros initiaux conserves dans les pieces, la RAS et l'IS; 170 tests declarations/API passes, Ruff et mypy passes.
 - [ ] Versionner tolerances, arrondis et exceptions.
 - [ ] Tracer extraction, transformation, regle, preuve et resultat.
 - [ ] Chiffrer et minimiser les donnees fiscales sensibles.
 - [ ] Tester chaque regle avec cas normal, limite et anomalie.
+
+### Phase 2 - Rapprochements externes, hors MVP initial
+
+- [x] Rapprocher Grand Livre, pieces et paiements disponibles (mecanismes deja implementes, non requis au demarrage de la phase 1).
+  - [x] Generaliser le contrat de cartographie GL avec type de declaration, champ selecteur et champ montant explicites; conserver les valeurs TVA par defaut.
+  - [x] Rapprocher une declaration RAS au GL via `withholding_tax`, `line_code` et `withheld_amount`, sans reutiliser implicitement `tax_amount`; 159 tests declarations/API passes, Ruff et mypy passes.
+  - [x] Etendre le rapprochement GL a l'IUTS et a l'IS avec des cartographies organisationnelles explicites; tests de rapprochement passes pour les quatre declarations.
+  - [x] Generaliser le contrat des pieces et paiements a la RAS: montant fiscal, selecteur et champ canonique explicites, sans imposer l'arithmetique HT + TVA; conservation des zeros initiaux.
+  - [x] Etendre les pieces et paiements a l'IUTS et a l'IS avec montant fiscal et montant de paiement attendu distincts; 165 tests declarations/API passes, Ruff et mypy passes.
+- [x] Produire une assurance renforcee avec rapprochement comptable: politiques v2 propres a TVA/RAS/IUTS/IS, historique exige uniquement pour TVA/IS, composition controles fiscaux + GL exposee par l'API; cas RAS renforce passe, 165 tests declarations/API passes, Ruff et mypy passes.
+- [ ] Rapprocher les partenaires par identifiants et attributs disponibles.
+- [ ] Scorer les doublons sans fusion automatique incertaine.
 
 ## Migration Infrastructure Prioritaire
 

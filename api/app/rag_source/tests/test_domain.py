@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from app.rag_source.domain import (
@@ -6,6 +8,7 @@ from app.rag_source.domain import (
     FiscalSourceOrigin,
     FiscalSourceStatus,
     FiscalSourceType,
+    RagApplicabilityStatus,
     RagSourceDocument,
     RagSourceMetadata,
     RagSourceOrigin,
@@ -24,6 +27,8 @@ def test_reference_source_metadata_is_normalized() -> None:
         origin=RagSourceOrigin.ANONYMIZED_REFERENCE,
         source_path="docs/source/cgi-bf-2025.pdf",
         themes=(" ras ", " TVA"),
+        applicable_from=date(2025, 1, 1),
+        applicability_status=RagApplicabilityStatus.CONFIRMED,
     )
 
     assert metadata.domain == "fiscal"
@@ -31,6 +36,40 @@ def test_reference_source_metadata_is_normalized() -> None:
     assert metadata.title == "Code general des impots"
     assert metadata.language == "fr"
     assert metadata.themes == ("ras", "TVA")
+    assert metadata.applicable_from == date(2025, 1, 1)
+    assert metadata.applicability_status is RagApplicabilityStatus.CONFIRMED
+
+
+def test_metadata_rejects_an_inverted_applicability_period() -> None:
+    with pytest.raises(ValueError, match="applicable_to"):
+        RagSourceMetadata(
+            country="BF",
+            source_type=RagSourceType.TAX_CODE,
+            title="Code general des impots",
+            version="2025",
+            language="fr",
+            origin=RagSourceOrigin.ANONYMIZED_REFERENCE,
+            source_path="docs/source/cgi.pdf",
+            themes=("RAS",),
+            applicable_from=date(2025, 1, 1),
+            applicable_to=date(2024, 12, 31),
+            applicability_status=RagApplicabilityStatus.CONFIRMED,
+        )
+
+
+def test_confirmed_applicability_requires_a_start_date() -> None:
+    with pytest.raises(ValueError, match="requires applicable_from"):
+        RagSourceMetadata(
+            country="BF",
+            source_type=RagSourceType.TAX_CODE,
+            title="Code general des impots",
+            version="2025",
+            language="fr",
+            origin=RagSourceOrigin.ANONYMIZED_REFERENCE,
+            source_path="docs/source/cgi.pdf",
+            themes=("RAS",),
+            applicability_status=RagApplicabilityStatus.CONFIRMED,
+        )
 
 
 def test_non_fiscal_source_metadata_is_supported() -> None:
@@ -48,6 +87,14 @@ def test_non_fiscal_source_metadata_is_supported() -> None:
     assert metadata.domain == "compliance"
     assert metadata.country is None
     assert metadata.source_type is RagSourceType.INTERNAL_PROCEDURE
+
+
+def test_official_fiscal_source_types_are_supported() -> None:
+    assert RagSourceType.LAW.value == "law"
+    assert RagSourceType.ADMINISTRATIVE_INSTRUCTION.value == (
+        "administrative_instruction"
+    )
+    assert RagSourceType.OFFICIAL_FORM.value == "official_form"
 
 
 def test_user_upload_requires_an_opaque_owner_reference() -> None:
@@ -75,6 +122,21 @@ def test_metadata_rejects_empty_required_fields() -> None:
             origin=RagSourceOrigin.ANONYMIZED_REFERENCE,
             source_path="docs/source/cgi.pdf",
             themes=("RAS",),
+        )
+
+
+def test_metadata_rejects_a_non_https_source_url() -> None:
+    with pytest.raises(ValueError, match="source_url must use HTTPS"):
+        RagSourceMetadata(
+            country="BF",
+            source_type=RagSourceType.TAX_CODE,
+            title="Code general des impots",
+            version="2025",
+            language="fr",
+            origin=RagSourceOrigin.ANONYMIZED_REFERENCE,
+            source_path="docs/source/cgi.pdf",
+            themes=("RAS",),
+            source_url="http://example.test/cgi.pdf",
         )
 
 

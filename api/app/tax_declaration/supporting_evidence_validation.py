@@ -3,7 +3,16 @@ from __future__ import annotations
 from collections import Counter
 from decimal import Decimal
 
-from app.tax_declaration.domain import CanonicalTaxDeclaration
+from app.tax_declaration.domain import (
+    CanonicalRecord,
+    CanonicalTaxDeclaration,
+    TaxDeclarationType,
+)
+from app.tax_declaration.partner_reconciliation import (
+    PartnerMatchStatus,
+    PartnerReconciler,
+    PartnerReference,
+)
 from app.tax_declaration.supporting_evidence import InvoiceEvidence, PaymentEvidence
 from app.tax_declaration.validation_domain import (
     OverallValidationStatus,
@@ -12,6 +21,9 @@ from app.tax_declaration.validation_domain import (
     ValidationLayer,
     ValidationSeverity,
     ValidationStatus,
+)
+from app.tax_declaration.vat_ledger_mapping import (
+    validate_declaration_record_fields,
 )
 
 
@@ -24,19 +36,34 @@ class SupportingEvidenceValidator:
         *,
         declaration_currency: str,
         tolerance: Decimal,
+        record_selector_field: str = "line_code",
+        declaration_amount_field: str = "tax_amount",
     ) -> TaxDeclarationValidationReport:
         if not declaration_currency.strip():
             raise ValueError("declaration currency is required")
         if tolerance < 0:
             raise ValueError("tolerance cannot be negative")
+        validate_declaration_record_fields(
+            declaration.declaration_type,
+            record_selector_field,
+            declaration_amount_field,
+        )
+        arithmetic_checks = (
+            (_invoice_arithmetic_check(invoices, tolerance),)
+            if declaration.declaration_type is TaxDeclarationType.VAT
+            else ()
+        )
         checks = (
             _invoice_identity_check(invoices),
-            _invoice_arithmetic_check(invoices, tolerance),
-            *_declaration_invoice_checks(
+            *_partner_reconciliation_checks(declaration, invoices),
+            *arithmetic_checks,
+            *_declaration_evidence_checks(
                 declaration,
                 invoices,
                 declaration_currency,
                 tolerance,
+                record_selector_field,
+                declaration_amount_field,
             ),
             _payment_reconciliation_check(invoices, payments, tolerance),
         )
@@ -44,6 +71,107 @@ class SupportingEvidenceValidator:
             overall_status=_overall_status(checks),
             checks=checks,
         )
+
+
+def _partner_reconciliation_checks(
+    declaration: CanonicalTaxDeclaration,
+    invoices: tuple[InvoiceEvidence, ...],
+) -> tuple[ValidationCheck, ...]:
+    declaration_partners = tuple(
+        _declaration_partner(record_index, record)
+        for record_index, record in enumerate(declaration.records, start=1)
+        if _record_has_partner(record)
+    )
+    evidence_partners = tuple(
+        PartnerReference(
+            reference_id=invoice.invoice_id or invoice.locator,
+            identifier=invoice.partner_identifier,
+            identifier_type=invoice.partner_identifier_type,
+            name=invoice.partner_name,
+        )
+        for invoice in invoices
+        if invoice.partner_identifier is not None or invoice.partner_name is not None
+    )
+    if not declaration_partners and not evidence_partners:
+        return ()
+    if not declaration_partners:
+        return (
+            ValidationCheck(
+                check_id="supporting_partner_reconciliation",
+                layer=ValidationLayer.SUPPORTING_DOCUMENTS,
+                status=ValidationStatus.NOT_EVALUATED,
+                severity=ValidationSeverity.WARNING,
+                message="Aucun partenaire de declaration n'est disponible.",
+                affected_lines=tuple(
+                    partner.reference_id for partner in evidence_partners
+                ),
+            ),
+        )
+    matches = PartnerReconciler().reconcile(
+        declaration_partners,
+        evidence_partners,
+    )
+    conflicts = tuple(
+        match.evidence_reference_id
+        for match in matches
+        if match.status in {PartnerMatchStatus.CONFLICT, PartnerMatchStatus.UNMATCHED}
+    )
+    uncertain = tuple(
+        match.evidence_reference_id
+        for match in matches
+        if match.status in {PartnerMatchStatus.POTENTIAL, PartnerMatchStatus.UNRESOLVED}
+    )
+    if conflicts:
+        status = ValidationStatus.FAILED
+        severity = ValidationSeverity.ERROR
+        message = "Des partenaires sont absents ou correspondent a plusieurs candidats."
+    elif uncertain:
+        status = ValidationStatus.NOT_EVALUATED
+        severity = ValidationSeverity.WARNING
+        message = "Des rapprochements partenaires restent potentiels."
+    else:
+        status = ValidationStatus.PASSED
+        severity = ValidationSeverity.INFO
+        message = "Les partenaires sont rapproches par identifiant type et valeur."
+    return (
+        ValidationCheck(
+            check_id="supporting_partner_reconciliation",
+            layer=ValidationLayer.SUPPORTING_DOCUMENTS,
+            status=status,
+            severity=severity,
+            message=message,
+            affected_lines=tuple((*conflicts, *uncertain)),
+        ),
+    )
+
+
+def _record_has_partner(record: CanonicalRecord) -> bool:
+    return any(
+        field.name in {"partner_identifier", "partner_name"}
+        and field.normalized_value is not None
+        for field in record.fields
+    )
+
+
+def _declaration_partner(
+    record_index: int,
+    record: CanonicalRecord,
+) -> PartnerReference:
+    fields = {
+        field.name: field.normalized_value
+        for field in record.fields
+    }
+    line = fields.get("line_code") or fields.get("line_number") or record_index
+    return PartnerReference(
+        reference_id=str(line),
+        identifier=_optional_text(fields.get("partner_identifier")),
+        identifier_type=_optional_text(fields.get("partner_identifier_type")),
+        name=_optional_text(fields.get("partner_name")),
+    )
+
+
+def _optional_text(value: object) -> str | None:
+    return str(value) if value is not None else None
 
 
 def _invoice_identity_check(
@@ -120,11 +248,13 @@ def _invoice_arithmetic_check(
     )
 
 
-def _declaration_invoice_checks(
+def _declaration_evidence_checks(
     declaration: CanonicalTaxDeclaration,
     invoices: tuple[InvoiceEvidence, ...],
     currency: str,
     tolerance: Decimal,
+    selector_field: str,
+    amount_field: str,
 ) -> tuple[ValidationCheck, ...]:
     expected_currency = currency.upper()
     grouped: dict[str, Decimal] = {}
@@ -132,9 +262,15 @@ def _declaration_invoice_checks(
     wrong_currency: list[str] = []
     for invoice in invoices:
         identifier = invoice.invoice_id or invoice.locator
+        evidence_amount = invoice.declaration_amount
+        if (
+            evidence_amount is None
+            and declaration.declaration_type is TaxDeclarationType.VAT
+        ):
+            evidence_amount = invoice.vat_amount
         if (
             invoice.declaration_line is None
-            or invoice.vat_amount is None
+            or evidence_amount is None
             or invoice.currency is None
         ):
             unresolved.append(identifier)
@@ -143,7 +279,8 @@ def _declaration_invoice_checks(
             wrong_currency.append(identifier)
             continue
         grouped[invoice.declaration_line] = (
-            grouped.get(invoice.declaration_line, Decimal(0)) + invoice.vat_amount
+            grouped.get(invoice.declaration_line, Decimal(0))
+            + evidence_amount
         )
     assignment_check = _invoice_assignment_check(unresolved, wrong_currency)
     if not grouped:
@@ -161,7 +298,14 @@ def _declaration_invoice_checks(
         (
             assignment_check,
             *(
-                _declaration_line_check(declaration, line, amount, tolerance)
+                _declaration_line_check(
+                    declaration,
+                    line,
+                    amount,
+                    tolerance,
+                    selector_field,
+                    amount_field,
+                )
                 for line, amount in sorted(grouped.items())
             ),
         )
@@ -199,8 +343,15 @@ def _declaration_line_check(
     line: str,
     evidence_amount: Decimal,
     tolerance: Decimal,
+    selector_field: str,
+    amount_field: str,
 ) -> ValidationCheck:
-    declared = _line_amount(declaration, line)
+    declared = _record_amount(
+        declaration,
+        selector_field=selector_field,
+        selector_value=line,
+        amount_field=amount_field,
+    )
     if declared is None:
         return ValidationCheck(
             check_id=f"supporting_invoice_line_{line}",
@@ -276,13 +427,18 @@ def _payment_reconciliation_check(
     unresolved: list[str] = []
     mismatches: list[str] = []
     for invoice in invoices:
-        if invoice.invoice_id is None or invoice.gross_amount is None:
+        expected_payment = (
+            invoice.payment_expected_amount
+            if invoice.payment_expected_amount is not None
+            else invoice.gross_amount
+        )
+        if invoice.invoice_id is None or expected_payment is None:
             unresolved.append(invoice.invoice_id or invoice.locator)
             continue
         paid = payments_by_invoice.get(invoice.invoice_id)
         if paid is None:
             unresolved.append(invoice.invoice_id)
-        elif abs(paid - invoice.gross_amount) > tolerance:
+        elif abs(paid - expected_payment) > tolerance:
             mismatches.append(invoice.invoice_id)
     if invalid_payments or mismatches:
         status = ValidationStatus.FAILED
@@ -306,15 +462,18 @@ def _payment_reconciliation_check(
     )
 
 
-def _line_amount(
+def _record_amount(
     declaration: CanonicalTaxDeclaration,
-    line_code: str,
+    *,
+    selector_field: str,
+    selector_value: str,
+    amount_field: str,
 ) -> Decimal | None:
     for record in declaration.records:
         fields = {field.name: field for field in record.fields}
-        code = fields.get("line_code")
-        amount = fields.get("tax_amount")
-        if code is None or str(code.normalized_value) != line_code:
+        selector = fields.get(selector_field)
+        amount = fields.get(amount_field)
+        if selector is None or str(selector.normalized_value) != selector_value:
             continue
         if amount is not None and isinstance(amount.normalized_value, Decimal):
             return amount.normalized_value

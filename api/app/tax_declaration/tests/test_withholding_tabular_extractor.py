@@ -58,6 +58,22 @@ def test_keeps_invalid_withheld_amount_unresolved(tmp_path: Path) -> None:
     assert fields["withheld_amount"].source_value == "inconnu"
 
 
+def test_detects_partner_nif_without_value_format_assumption(tmp_path: Path) -> None:
+    source = tmp_path / "ras-nif.csv"
+    source.write_text(
+        "N;NIF;Prestataire;Categorie;Taux;Montant des retenues\n"
+        "01;00-AZ-19;Partenaire Test;Prestations;2%;20000\n",
+        encoding="utf-8",
+    )
+
+    declaration = WithholdingTabularExtractor().extract(source, _reference(source))
+
+    fields = {field.name: field for field in declaration.records[0].fields}
+    assert fields["partner_identifier"].normalized_value == "00-AZ-19"
+    assert fields["partner_identifier_type"].normalized_value == "NIF"
+    assert fields["partner_name"].normalized_value == "Partenaire Test"
+
+
 def test_rejects_table_without_withholding_amount(tmp_path: Path) -> None:
     source = tmp_path / "ras.csv"
     source.write_text("Categorie;Taux\nPrestations;2%\n", encoding="utf-8")

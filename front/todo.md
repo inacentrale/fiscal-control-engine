@@ -88,3 +88,15 @@ Checklist operationnelle du chantier front. Les cases seront cochees au fur et a
 ## Rapports
 
 - [ ] Preparer l'interface de generation/consultation de rapport.
+
+## Gestion des Declarations (nouvelle page)
+
+- [x] Ajouter une sidebar de navigation partagee (`components/layout/sidebar/AppSidebar.tsx`), branchee dans `DashboardShell.tsx`, pour naviguer entre "Analyse du Grand Livre" et "Gestion des declarations".
+- [x] Ajouter la route `/declarations` (`app/declarations/page.tsx`).
+- [x] Ajouter la couche API typee `api/taxDeclarations/` (types + `analyzeTaxDeclaration` + `analyzeTaxDeclarationHistory`), meme patron que `api/agent/uploadAgentFile.ts`.
+- [x] Ajouter `hooks/useAnalyzeTaxDeclaration.ts` et `useAnalyzeTaxDeclarationHistory.ts` (React Query, meme patron que `useAgentFileUpload.ts`).
+- [x] Ajouter les composants `components/declarations/`: selection du type, formulaire d'analyse, formulaire historique (2 exercices), rapport de validation avec badges de statut, badge d'assurance, tableau des champs extraits.
+- [x] Couvre les 4 types de declaration (TVA, RAS, IUTS, IS) pour `analyze`; l'onglet "Historique" se desactive automatiquement pour RAS/IUTS (non branche cote API).
+- [x] Teste de bout en bout dans un vrai navigateur (Playwright): upload CSV IS -> rapport de validation affiche; upload 2 exercices IS -> controle des acomptes provisionnels affiche et correct (2 062 500 attendu = declare, ecart 0).
+- [x] Bug trouve et corrige en testant: `api/.env` reel (local, non versionne) n'avait pas `CORPORATE_INCOME_TAX_VALIDATION_RULES_PATH`, cause d'un 500 "referentiel de validation IS indisponible" — uniquement `.env.example` avait ete mis a jour precedemment. A verifier si d'autres environnements de deploiement ont le meme trou.
+- [ ] Hors perimetre pour l'instant: `reconcile-ledger` et `reconcile-supporting-documents` (TVA uniquement, multi-fichiers, plus complexe) — a faire dans un lot separe si besoin.

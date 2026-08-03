@@ -15,7 +15,15 @@ import pandas as pd
 from app.tax_declaration.document_text_extractor import (
     DeclarationDocumentTextExtractor,
 )
-from app.tax_declaration.domain import DeclarationSourceFormat, SourceReference
+from app.tax_declaration.domain import (
+    DeclarationSourceFormat,
+    SourceReference,
+    TaxDeclarationType,
+)
+from app.tax_declaration.identifier_detection import (
+    infer_identifier_kind,
+    normalize_explicit_identifier_kind,
+)
 
 _FORBIDDEN_XML_MARKERS = (b"<!DOCTYPE", b"<!ENTITY")
 
@@ -25,17 +33,57 @@ _INVOICE_ALIASES = {
         "identifiant partenaire",
         "partner identifier",
         "ifu",
+        "numero ifu",
+        "nif",
+        "tin",
+        "identifiant fiscal",
+        "numero fiscal",
+        "tax id",
+        "taxpayer identifier",
     ),
     "partner_identifier_type": (
         "type identifiant partenaire",
         "partner identifier type",
         "type identifiant",
     ),
+    "partner_name": (
+        "nom partenaire",
+        "raison sociale",
+        "beneficiaire",
+        "prestataire",
+        "partner name",
+    ),
     "net_amount": ("montant hors taxe", "montant ht", "base", "net amount"),
     "vat_amount": ("montant tva", "tva", "vat amount"),
     "gross_amount": ("montant ttc", "total ttc", "gross amount"),
     "currency": ("devise", "currency"),
-    "declaration_line": ("ligne declaration", "declaration line", "ligne tva"),
+    "declaration_line": (
+        "ligne declaration",
+        "declaration line",
+        "ligne tva",
+        "ligne ras",
+        "numero ligne",
+        "selecteur declaration",
+        "declaration selector",
+    ),
+    "declaration_amount": (
+        "montant fiscal",
+        "declaration amount",
+        "montant declare justifie",
+        "montant des retenues",
+        "montant de la retenue",
+        "montant iuts",
+        "iuts du",
+        "is a payer",
+        "impot sur les societes a payer",
+    ),
+    "payment_expected_amount": (
+        "montant paiement attendu",
+        "expected payment amount",
+        "montant a rapprocher au paiement",
+        "salaire brut",
+        "montant verse",
+    ),
 }
 _PAYMENT_ALIASES = {
     "payment_id": ("numero paiement", "payment id", "paiement"),
@@ -57,6 +105,9 @@ class InvoiceEvidence:
     declaration_line: str | None
     source_reference: SourceReference
     locator: str
+    declaration_amount: Decimal | None = None
+    payment_expected_amount: Decimal | None = None
+    partner_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -86,6 +137,7 @@ class SupportingEvidenceExtractor:
         source_reference: SourceReference,
         *,
         sheet_name: str | None = None,
+        declaration_type: TaxDeclarationType = TaxDeclarationType.VAT,
     ) -> tuple[InvoiceEvidence, ...]:
         frame, locator_prefix = _read_frame(
             source_path,
@@ -94,14 +146,11 @@ class SupportingEvidenceExtractor:
             self._text_extractor,
         )
         mapping = _map_columns(tuple(frame.columns), _INVOICE_ALIASES)
-        required = {
-            "invoice_id",
-            "net_amount",
-            "vat_amount",
-            "gross_amount",
-            "currency",
-            "declaration_line",
-        }
+        required = {"invoice_id", "currency", "declaration_line"}
+        if declaration_type is TaxDeclarationType.VAT:
+            required.update({"net_amount", "vat_amount", "gross_amount"})
+        else:
+            required.add("declaration_amount")
         _require_mapping(mapping, required, "invoice")
         return tuple(
             _invoice(row, index, mapping, source_reference, locator_prefix)
@@ -143,10 +192,15 @@ def _read_frame(
 ) -> tuple[pd.DataFrame, str]:
     try:
         if reference.source_format is DeclarationSourceFormat.CSV:
-            return pd.read_csv(path, sep=None, engine="python"), "csv"
+            return pd.read_csv(path, sep=None, engine="python", dtype=object), "csv"
         if reference.source_format is DeclarationSourceFormat.EXCEL:
             return (
-                pd.read_excel(path, sheet_name=sheet_name or 0, engine="openpyxl"),
+                pd.read_excel(
+                    path,
+                    sheet_name=sheet_name or 0,
+                    engine="openpyxl",
+                    dtype=object,
+                ),
                 f"excel:{sheet_name or 0}",
             )
         if reference.source_format is DeclarationSourceFormat.XML:
@@ -265,10 +319,16 @@ def _invoice(
     reference: SourceReference,
     locator_prefix: str,
 ) -> InvoiceEvidence:
+    explicit_kind = _text(row, mapping.get("partner_identifier_type"))
+    identifier_column = mapping.get("partner_identifier")
     return InvoiceEvidence(
         invoice_id=_text(row, mapping.get("invoice_id")),
         partner_identifier=_text(row, mapping.get("partner_identifier")),
-        partner_identifier_type=_text(row, mapping.get("partner_identifier_type")),
+        partner_identifier_type=(
+            normalize_explicit_identifier_kind(explicit_kind)
+            if explicit_kind is not None
+            else infer_identifier_kind(identifier_column or "")
+        ),
         net_amount=_amount(row, mapping.get("net_amount")),
         vat_amount=_amount(row, mapping.get("vat_amount")),
         gross_amount=_amount(row, mapping.get("gross_amount")),
@@ -276,6 +336,12 @@ def _invoice(
         declaration_line=_text(row, mapping.get("declaration_line")),
         source_reference=reference,
         locator=f"{locator_prefix};row:{index}",
+        declaration_amount=_declaration_amount(row, mapping),
+        payment_expected_amount=_amount(
+            row,
+            mapping.get("payment_expected_amount"),
+        ),
+        partner_name=_text(row, mapping.get("partner_name")),
     )
 
 
@@ -294,6 +360,14 @@ def _payment(
         source_reference=reference,
         locator=f"{locator_prefix};row:{index}",
     )
+
+
+def _declaration_amount(
+    row: pd.Series[Any],
+    mapping: dict[str, str],
+) -> Decimal | None:
+    amount = _amount(row, mapping.get("declaration_amount"))
+    return amount if amount is not None else _amount(row, mapping.get("vat_amount"))
 
 
 def _text(row: pd.Series[Any], column: str | None) -> str | None:

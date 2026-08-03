@@ -19,6 +19,10 @@ from app.tax_declaration.domain import (
     SourceReference,
     TaxDeclarationType,
 )
+from app.tax_declaration.identifier_detection import (
+    infer_identifier_kind,
+    normalize_explicit_identifier_kind,
+)
 from app.tax_declaration.withholding_schema import WITHHOLDING_SCHEMA_VERSION
 
 _FIELD_ALIASES = {
@@ -39,6 +43,28 @@ _FIELD_ALIASES = {
         "nature",
         "type de retenue",
         "categorie de retenue",
+    ),
+    "partner_identifier": (
+        "identifiant partenaire",
+        "ifu",
+        "numero ifu",
+        "nif",
+        "tin",
+        "identifiant fiscal",
+        "numero fiscal",
+        "tax id",
+        "taxpayer identifier",
+    ),
+    "partner_identifier_type": (
+        "type identifiant partenaire",
+        "partner identifier type",
+        "type identifiant",
+    ),
+    "partner_name": (
+        "nom partenaire",
+        "raison sociale",
+        "beneficiaire",
+        "prestataire",
     ),
     "payment_amount": (
         "montant des paiements bruts ttc",
@@ -164,17 +190,35 @@ def _extract_record(
     mapping: dict[str, str],
     reference: SourceReference,
 ) -> CanonicalRecord:
+    fields = [
+        _canonical_field(
+            name,
+            row[column],
+            reference,
+            f"row:{row_index};column:{column}",
+        )
+        for name, column in mapping.items()
+    ]
+    identifier_column = mapping.get("partner_identifier")
+    if identifier_column is not None and "partner_identifier_type" not in mapping:
+        identifier_kind = infer_identifier_kind(identifier_column)
+        if identifier_kind is not None:
+            fields.append(
+                CanonicalField(
+                    name="partner_identifier_type",
+                    source_value=identifier_column,
+                    normalized_value=identifier_kind,
+                    confidence=1.0,
+                    status=ResolutionStatus.RESOLVED,
+                    provenance=FieldProvenance(
+                        reference,
+                        f"column:{identifier_column}",
+                    ),
+                ),
+            )
     return CanonicalRecord(
         record_type="withholding_line",
-        fields=tuple(
-            _canonical_field(
-                name,
-                row[column],
-                reference,
-                f"row:{row_index};column:{column}",
-            )
-            for name, column in mapping.items()
-        ),
+        fields=tuple(fields),
     )
 
 
@@ -206,6 +250,8 @@ def _normalize_value(name: str, value: Any) -> str | Decimal | None:
     if name in _AMOUNT_FIELDS:
         return _decimal(value)
     text = str(value).strip()
+    if name == "partner_identifier_type":
+        return normalize_explicit_identifier_kind(text)
     if name == "line_code" and text.endswith(".0"):
         text = text[:-2]
     return text or None

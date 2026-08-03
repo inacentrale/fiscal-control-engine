@@ -1,8 +1,17 @@
+import hashlib
+
 from app.rag_source.constants import (
     DEFAULT_CHUNK_MAX_WORDS,
     DEFAULT_CHUNK_OVERLAP_WORDS,
 )
-from app.rag_source.domain import RagChunk, RagSourceDocument, RagTextBlock
+from app.rag_source.corpus_loader import RagCorpusBlock
+from app.rag_source.domain import (
+    RagChunk,
+    RagSourceDocument,
+    RagSourceMetadata,
+    RagSourceStatus,
+    RagTextBlock,
+)
 
 
 class RagChunker:
@@ -72,6 +81,37 @@ class RagChunker:
         sequence: int,
     ) -> str:
         return f"{document.metadata.title}:{block.reference}:{sequence}"
+
+
+def chunk_corpus_blocks(
+    corpus_blocks: tuple[RagCorpusBlock, ...],
+    chunker: RagChunker | None = None,
+) -> tuple[RagChunk, ...]:
+    """Chunk blocks loaded from a multi-source corpus (e.g. an exported CSV).
+
+    `RagChunker.chunk` assumes every block belongs to the same document and
+    tags every resulting chunk with that single document's metadata. A
+    corpus CSV can hold blocks from several distinct sources (different
+    titles/versions), so blocks are grouped by their source metadata first
+    and chunked one source at a time to keep each chunk correctly
+    attributed to its own source.
+    """
+    active_chunker = chunker or RagChunker()
+    grouped: dict[RagSourceMetadata, list[RagTextBlock]] = {}
+    for corpus_block in corpus_blocks:
+        grouped.setdefault(corpus_block.metadata, []).append(corpus_block.block)
+
+    chunks: list[RagChunk] = []
+    for metadata, blocks in grouped.items():
+        text = "\n".join(block.text for block in blocks)
+        document = RagSourceDocument(
+            metadata=metadata,
+            text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            status=RagSourceStatus.ACTIVE,
+        )
+        chunks.extend(active_chunker.chunk(document=document, blocks=tuple(blocks)))
+
+    return tuple(chunks)
 
 
 FiscalChunker = RagChunker

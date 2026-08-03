@@ -71,6 +71,25 @@ Texte valide.
     assert any(issue.code == "missing_metadata" for issue in report.issues)
 
 
+def test_fiscal_source_without_applicability_fields_is_not_indexable(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "undated-source.md"
+    source_path.write_text(
+        _source_markdown(validation_status="validated").replace(
+            "- `applicable_from`: `2026-01-01`\n- `applicable_to`: ``\n",
+            "",
+        ),
+        encoding="utf-8",
+    )
+
+    report = validate_source_corpus_file(source_path)
+
+    assert report.is_indexable is False
+    assert "applicable_from" in report.issues[0].message
+    assert "applicable_to" in report.issues[0].message
+
+
 def test_find_source_corpus_files_ignores_readme_and_templates(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("# Readme\n", encoding="utf-8")
     (tmp_path / "source-template.md").write_text("# Template\n", encoding="utf-8")
@@ -102,6 +121,10 @@ def _source_markdown(
 - `source_type`: `tax_code`
 - `title`: `{title}`
 - `version`: `2026`
+- `applicable_from`: `2026-01-01`
+- `applicable_to`: ``
+- `applicability_status`: `confirmed`
+- `source_url`: `https://dgi.bf/verification/CGI`
 - `language`: `fr`
 - `origin`: `anonymized_reference`
 - `themes`: `RAS`

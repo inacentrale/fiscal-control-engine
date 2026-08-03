@@ -1,0 +1,7 @@
+source_id,official_url,local_path,sha256,byte_size,verified_on,storage_status
+bf_cgi_consolidated_2023,https://dgi.bf/wp-content/uploads/2023/10/CODE-GENERAL-DES-IMPOTS-2023-A-JOUR-AVEC-LA-LOI-DE-FINANCE-2023.pdf,docs/CGI_BF.pdf,01565200e1e8a9edb50aa81d225aed6b3d64ace8554feaeb9a125c3f0f8d9118,3898824,2026-08-03,versioned
+bf_finance_law_2023,https://dgi.bf/wp-content/uploads/2023/10/LOI-DE-FINANCES-2023.pdf,.local/source-audit/loi-finances-2023.pdf,4db91905c5868edd44850ca666a71f02d1b851dee74d4e9c37d57bed7fd68d91,23652281,2026-08-03,local_cache
+bf_finance_law_2024,https://dgi.bf/wp-content/uploads/2023/10/LOI-DE-FINANCES-2024.pdf,.local/source-audit/loi-finances-2024.pdf,0849654e088bae6fc34ef2b4a5fd78b1e6997f72a01757d5a50f763648b92ec6,12807049,2026-08-03,local_cache
+bf_finance_rectifying_law_2024,https://dgi.bf/wp-content/uploads/2023/10/LOI-DE-FINANCES-RECTIFICATIVE-2024.pdf,.local/source-audit/loi-finances-rectificative-2024.pdf,446713f354cc61abe7101dc37f1d2aeb25b1cb1a7d927aa6674891e8d9cbcf72,4083962,2026-08-03,local_cache
+bf_finance_law_2025,https://dgi.bf/wp-content/uploads/2026/01/LOI-DE-FINANCES-2025.pdf,.local/source-audit/loi-finances-2025.pdf,fce1c654d9f84cfbbdb5b26a48dd4ca399280a25d5b0ffbfa68a4dd5dad91b4b,9793244,2026-08-03,local_cache
+bf_finance_law_2026,https://dgi.bf/wp-content/uploads/2026/01/JOURNAL-OFFICIEL-N%C2%B001-SPECIAL-LOI-DE-FINANCES-2026.pdf,.local/source-audit/loi-finances-2026.pdf,24242939052ac8dc40b6b59e9dd5e89b5e72e5f29aaeed6362cefa97a02f7d6a,15892649,2026-08-03,local_cache

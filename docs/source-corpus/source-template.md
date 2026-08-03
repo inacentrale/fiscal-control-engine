@@ -4,9 +4,13 @@
 
 - `domain`: `fiscal | compliance | finance | procedures | autre`
 - `country`: `BF` si applicable
-- `source_type`: `tax_code | doctrine | internal_procedure | rate_reference | business_note | policy | knowledge_base | report | contract`
+- `source_type`: `tax_code | law | administrative_instruction | official_form | doctrine | internal_procedure | rate_reference | business_note | policy | knowledge_base | report | contract`
 - `title`: `A COMPLETER`
 - `version`: `A COMPLETER`
+- `applicable_from`: `AAAA-MM-JJ, vide si non confirmee`
+- `applicable_to`: `AAAA-MM-JJ, vide si toujours applicable ou non confirmee`
+- `applicability_status`: `confirmed | not_stated | not_applicable`
+- `source_url`: `URL HTTPS officielle ou interne citable`
 - `language`: `fr`
 - `origin`: `anonymized_reference`
 - `themes`: `A COMPLETER`

@@ -79,6 +79,9 @@ class TaxDeclarationHistoryResponse(BaseModel):
 
 
 class VatLedgerEvidenceResponse(BaseModel):
+    declaration_type: str
+    record_selector_field: str
+    declaration_amount_field: str
     declaration_line: str
     currency: str
     amount: str
@@ -95,6 +98,8 @@ class TaxDeclarationLedgerReconciliationResponse(BaseModel):
     declaration: TaxDeclarationIngestionResponse
     evidence: list[VatLedgerEvidenceResponse]
     validation: TaxDeclarationValidationResponse | None
+    declaration_validation: TaxDeclarationValidationResponse | None = None
+    assurance: TaxAssuranceAssessmentResponse | None = None
 
 
 class SupportingEvidenceSummaryResponse(BaseModel):

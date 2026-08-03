@@ -71,6 +71,39 @@ def test_retriever_returns_empty_results_when_query_has_no_overlap() -> None:
     assert results == ()
 
 
+def test_retriever_ignores_common_french_stopwords() -> None:
+    resident_chunk = _chunk(
+        1,
+        "Article 206",
+        "prestataire resident",
+        (
+            "Sont soumises a une retenue les sommes versees en remuneration "
+            "de prestations de toute nature fournies par des debiteurs qui y "
+            "resident."
+        ),
+    )
+    nonresident_chunk = _chunk(
+        2,
+        "Article 210",
+        "prestataire non resident",
+        (
+            "Une retenue est operee sur les sommes que les personnes non "
+            "residentes percoivent en remuneration de prestations."
+        ),
+    )
+
+    results = LexicalRetriever().search(
+        query="prestations fournies par un fournisseur non resident",
+        chunks=(resident_chunk, nonresident_chunk),
+    )
+
+    assert all(
+        stopword not in result.matched_terms
+        for result in results
+        for stopword in ("des", "par", "qui", "une", "les")
+    )
+
+
 def test_retriever_rejects_empty_query() -> None:
     results = LexicalRetriever().search(
         query=" ",

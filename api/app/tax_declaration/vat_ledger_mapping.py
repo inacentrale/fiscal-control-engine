@@ -6,6 +6,8 @@ from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
 
+from app.tax_declaration.domain import TaxDeclarationType
+
 
 class LedgerAmountSide(StrEnum):
     DEBIT = "debit"
@@ -24,6 +26,9 @@ class VatLedgerAccountMapping:
     valid_from: date | None
     valid_to: date | None
     source_reference: str
+    declaration_type: TaxDeclarationType = TaxDeclarationType.VAT
+    record_selector_field: str = "line_code"
+    declaration_amount_field: str = "tax_amount"
 
 
 class VatLedgerMappingError(ValueError):
@@ -42,6 +47,47 @@ _REQUIRED_COLUMNS = {
     "valid_to",
     "source_reference",
 }
+
+_DECLARATION_SELECTOR_FIELDS = {
+    TaxDeclarationType.VAT: {"line_code"},
+    TaxDeclarationType.WITHHOLDING_TAX: {"line_code"},
+    TaxDeclarationType.PAYROLL_TAX: {"line_number", "employee_identifier"},
+    TaxDeclarationType.CORPORATE_INCOME_TAX: {"company_identifier"},
+}
+_DECLARATION_AMOUNT_FIELDS = {
+    TaxDeclarationType.VAT: {"tax_base", "tax_amount"},
+    TaxDeclarationType.WITHHOLDING_TAX: {
+        "payment_amount",
+        "tax_base",
+        "withheld_amount",
+    },
+    TaxDeclarationType.PAYROLL_TAX: {
+        "gross_salary",
+        "taxable_base",
+        "iuts_amount",
+    },
+    TaxDeclarationType.CORPORATE_INCOME_TAX: {
+        "taxable_profit",
+        "annual_turnover_excluding_tax",
+        "computed_corporate_tax",
+        "minimum_tax_declared",
+        "corporate_tax_due",
+        "provisional_installments_paid",
+    },
+}
+
+
+def validate_declaration_record_fields(
+    declaration_type: TaxDeclarationType,
+    selector_field: str,
+    amount_field: str,
+) -> None:
+    allowed_selectors = _DECLARATION_SELECTOR_FIELDS.get(declaration_type)
+    allowed_amounts = _DECLARATION_AMOUNT_FIELDS.get(declaration_type)
+    if allowed_selectors is None or allowed_amounts is None:
+        raise VatLedgerMappingError("unsupported declaration type")
+    if selector_field not in allowed_selectors or amount_field not in allowed_amounts:
+        raise VatLedgerMappingError("invalid declaration record field")
 
 
 def load_vat_ledger_mappings(
@@ -100,12 +146,22 @@ def _parse_mapping(
         valid_to = (
             date.fromisoformat(values["valid_to"]) if values["valid_to"] else None
         )
+        declaration_type = TaxDeclarationType(
+            values.get("declaration_type") or TaxDeclarationType.VAT,
+        )
     except (ValueError, InvalidOperation) as exc:
         raise VatLedgerMappingError("invalid VAT ledger mapping value") from exc
     if tolerance < 0:
         raise VatLedgerMappingError("VAT ledger tolerance cannot be negative")
     if valid_from and valid_to and valid_to < valid_from:
         raise VatLedgerMappingError("invalid VAT ledger mapping validity")
+    selector_field = values.get("record_selector_field") or "line_code"
+    amount_field = values.get("declaration_amount_field") or "tax_amount"
+    validate_declaration_record_fields(
+        declaration_type,
+        selector_field,
+        amount_field,
+    )
     return VatLedgerAccountMapping(
         mapping_id=values["mapping_id"],
         version=values["version"],
@@ -117,4 +173,7 @@ def _parse_mapping(
         valid_from=valid_from,
         valid_to=valid_to,
         source_reference=values["source_reference"],
+        declaration_type=declaration_type,
+        record_selector_field=selector_field,
+        declaration_amount_field=amount_field,
     )

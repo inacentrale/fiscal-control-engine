@@ -1,9 +1,13 @@
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 
 
 class RagSourceType(StrEnum):
     TAX_CODE = "tax_code"
+    LAW = "law"
+    ADMINISTRATIVE_INSTRUCTION = "administrative_instruction"
+    OFFICIAL_FORM = "official_form"
     DOCTRINE = "doctrine"
     INTERNAL_PROCEDURE = "internal_procedure"
     RATE_REFERENCE = "rate_reference"
@@ -24,6 +28,12 @@ class RagSourceStatus(StrEnum):
     ACTIVE = "active"
     REJECTED = "rejected"
     ARCHIVED = "archived"
+
+
+class RagApplicabilityStatus(StrEnum):
+    CONFIRMED = "confirmed"
+    NOT_STATED = "not_stated"
+    NOT_APPLICABLE = "not_applicable"
 
 
 class RagTextBlockType(StrEnum):
@@ -47,6 +57,12 @@ class RagSourceMetadata:
     country: str | None = None
     article_or_section: str | None = None
     owner_reference: str | None = None
+    applicable_from: date | None = None
+    applicable_to: date | None = None
+    source_url: str | None = None
+    applicability_status: RagApplicabilityStatus = (
+        RagApplicabilityStatus.NOT_APPLICABLE
+    )
 
     def __post_init__(self) -> None:
         domain = self.domain.strip().lower()
@@ -58,6 +74,7 @@ class RagSourceMetadata:
         themes = tuple(theme.strip() for theme in self.themes if theme.strip())
         article_or_section = _strip_optional(self.article_or_section)
         owner_reference = _strip_optional(self.owner_reference)
+        source_url = _strip_optional(self.source_url)
 
         _require_non_empty("domain", domain)
         _require_non_empty("title", title)
@@ -68,6 +85,26 @@ class RagSourceMetadata:
             raise ValueError("themes must contain at least one value")
         if self.origin == RagSourceOrigin.USER_UPLOAD and owner_reference is None:
             raise ValueError("owner_reference is required for user uploads")
+        if source_url is not None and not source_url.startswith("https://"):
+            raise ValueError("source_url must use HTTPS")
+        if (
+            self.applicable_from is not None
+            and self.applicable_to is not None
+            and self.applicable_to < self.applicable_from
+        ):
+            raise ValueError("applicable_to must not precede applicable_from")
+        if (
+            self.applicability_status == RagApplicabilityStatus.CONFIRMED
+            and self.applicable_from is None
+        ):
+            raise ValueError("confirmed applicability requires applicable_from")
+        if (
+            self.applicability_status == RagApplicabilityStatus.NOT_APPLICABLE
+            and (self.applicable_from is not None or self.applicable_to is not None)
+        ):
+            raise ValueError(
+                "not_applicable sources must not define applicability dates",
+            )
 
         object.__setattr__(self, "domain", domain)
         object.__setattr__(self, "country", country)
@@ -78,6 +115,7 @@ class RagSourceMetadata:
         object.__setattr__(self, "themes", themes)
         object.__setattr__(self, "article_or_section", article_or_section)
         object.__setattr__(self, "owner_reference", owner_reference)
+        object.__setattr__(self, "source_url", source_url)
 
 
 @dataclass(frozen=True)
@@ -166,6 +204,7 @@ def _strip_optional(value: str | None) -> str | None:
 FiscalSourceType = RagSourceType
 FiscalSourceOrigin = RagSourceOrigin
 FiscalSourceStatus = RagSourceStatus
+FiscalApplicabilityStatus = RagApplicabilityStatus
 FiscalTextBlockType = RagTextBlockType
 FiscalSourceMetadata = RagSourceMetadata
 FiscalSourceDocument = RagSourceDocument

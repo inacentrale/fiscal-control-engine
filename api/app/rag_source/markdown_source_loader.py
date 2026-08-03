@@ -1,8 +1,10 @@
 import re
+from datetime import date
 from pathlib import Path
 
 from app.rag_source.corpus_loader import RagCorpusBlock
 from app.rag_source.domain import (
+    RagApplicabilityStatus,
     RagSourceMetadata,
     RagSourceOrigin,
     RagSourceType,
@@ -51,6 +53,12 @@ def _build_metadata(
         origin=RagSourceOrigin(raw_metadata["origin"]),
         source_path=str(source_path),
         themes=_split_themes(raw_metadata["themes"]),
+        applicable_from=_parse_optional_date(raw_metadata.get("applicable_from")),
+        applicable_to=_parse_optional_date(raw_metadata.get("applicable_to")),
+        source_url=raw_metadata.get("source_url"),
+        applicability_status=RagApplicabilityStatus(
+            raw_metadata.get("applicability_status", "not_applicable"),
+        ),
     )
 
 
@@ -72,3 +80,12 @@ def _split_themes(value: str) -> tuple[str, ...]:
     if not themes:
         raise ValueError("themes must contain at least one value")
     return themes
+
+
+def _parse_optional_date(value: str | None) -> date | None:
+    if value is None or not value.strip():
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError as exc:
+        raise ValueError("applicability dates must use YYYY-MM-DD") from exc

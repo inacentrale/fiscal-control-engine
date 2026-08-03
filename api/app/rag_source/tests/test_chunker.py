@@ -1,6 +1,7 @@
 import pytest
 
-from app.rag_source.chunker import FiscalChunker, RagChunker
+from app.rag_source.chunker import FiscalChunker, RagChunker, chunk_corpus_blocks
+from app.rag_source.corpus_loader import RagCorpusBlock
 from app.rag_source.domain import (
     FiscalSourceDocument,
     FiscalSourceMetadata,
@@ -104,6 +105,73 @@ def test_text_block_rejects_empty_text() -> None:
         )
 
 
+def test_chunk_corpus_blocks_attributes_each_chunk_to_its_own_source() -> None:
+    first_source = RagCorpusBlock(
+        metadata=_metadata(title="Source A", source_path="a.md"),
+        block=RagTextBlock(
+            block_type=RagTextBlockType.ARTICLE,
+            reference="Article 1",
+            heading=None,
+            text="Texte de la source A.",
+        ),
+    )
+    second_source = RagCorpusBlock(
+        metadata=_metadata(title="Source B", source_path="b.md"),
+        block=RagTextBlock(
+            block_type=RagTextBlockType.ARTICLE,
+            reference="Article 2",
+            heading=None,
+            text="Texte de la source B.",
+        ),
+    )
+
+    chunks = chunk_corpus_blocks((first_source, second_source))
+
+    references = {chunk.chunk_reference for chunk in chunks}
+    assert references == {
+        "Source A:Article 1:1",
+        "Source B:Article 2:1",
+    }
+    by_reference = {chunk.chunk_reference: chunk for chunk in chunks}
+    assert (
+        by_reference["Source A:Article 1:1"].source_metadata.title == "Source A"
+    )
+    assert (
+        by_reference["Source B:Article 2:1"].source_metadata.title == "Source B"
+    )
+
+
+def test_chunk_corpus_blocks_groups_multiple_blocks_from_same_source() -> None:
+    metadata = _metadata(title="Source A", source_path="a.md")
+    blocks = (
+        RagCorpusBlock(
+            metadata=metadata,
+            block=RagTextBlock(
+                block_type=RagTextBlockType.ARTICLE,
+                reference="Article 1",
+                heading=None,
+                text="Premier article.",
+            ),
+        ),
+        RagCorpusBlock(
+            metadata=metadata,
+            block=RagTextBlock(
+                block_type=RagTextBlockType.ARTICLE,
+                reference="Article 2",
+                heading=None,
+                text="Deuxieme article.",
+            ),
+        ),
+    )
+
+    chunks = chunk_corpus_blocks(blocks)
+
+    assert [chunk.chunk_reference for chunk in chunks] == [
+        "Source A:Article 1:1",
+        "Source A:Article 2:2",
+    ]
+
+
 def test_fiscal_names_are_kept_as_compatibility_aliases() -> None:
     assert FiscalChunker is RagChunker
     assert FiscalTextBlock is RagTextBlock
@@ -115,15 +183,18 @@ def test_fiscal_names_are_kept_as_compatibility_aliases() -> None:
     assert FiscalSourceStatus is RagSourceStatus
 
 
-def _metadata() -> RagSourceMetadata:
+def _metadata(
+    title: str = "Code general des impots",
+    source_path: str = "docs/source/cgi-bf-2025.pdf",
+) -> RagSourceMetadata:
     return RagSourceMetadata(
         country="BF",
         source_type=RagSourceType.TAX_CODE,
-        title="Code general des impots",
+        title=title,
         version="2025",
         language="fr",
         origin=RagSourceOrigin.ANONYMIZED_REFERENCE,
-        source_path="docs/source/cgi-bf-2025.pdf",
+        source_path=source_path,
         themes=("RAS",),
     )
 

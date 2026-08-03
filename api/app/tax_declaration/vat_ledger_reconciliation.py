@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from app.ledger_analysis.analysis_service import LedgerMetricsReport
-from app.tax_declaration.domain import CanonicalTaxDeclaration
+from app.tax_declaration.domain import CanonicalTaxDeclaration, TaxDeclarationType
 from app.tax_declaration.validation_domain import (
     OverallValidationStatus,
     TaxDeclarationValidationReport,
@@ -47,6 +47,9 @@ class VatLedgerEvidence:
     mapping_ids: tuple[str, ...]
     source_references: tuple[str, ...]
     tolerance: Decimal
+    declaration_type: TaxDeclarationType = TaxDeclarationType.VAT
+    record_selector_field: str = "line_code"
+    declaration_amount_field: str = "tax_amount"
 
 
 class VatLedgerEvidenceBuilder:
@@ -61,7 +64,7 @@ class VatLedgerEvidenceBuilder:
     ) -> tuple[VatLedgerEvidence, ...]:
         applicable = applicable_vat_ledger_mappings(mappings, period_end)
         grouped: dict[
-            tuple[str, str],
+            tuple[TaxDeclarationType, str, str, str, str],
             list[tuple[VatLedgerAccountMapping, dict[str, object]]],
         ] = {}
         for mapping in applicable:
@@ -85,7 +88,13 @@ class VatLedgerEvidenceBuilder:
             if not isinstance(currency_totals, dict):
                 currency_totals = _empty_totals()
             grouped.setdefault(
-                (mapping.declaration_line, mapping.currency),
+                (
+                    mapping.declaration_type,
+                    mapping.record_selector_field,
+                    mapping.declaration_amount_field,
+                    mapping.declaration_line,
+                    mapping.currency,
+                ),
                 [],
             ).append((mapping, currency_totals))
         return tuple(
@@ -108,7 +117,7 @@ class VatLedgerReconciler:
         if not checks:
             checks = (
                 ValidationCheck(
-                    check_id="vat_ledger_mapping_missing",
+                    check_id="tax_ledger_mapping_missing",
                     layer=ValidationLayer.RECONCILIATION,
                     status=ValidationStatus.NOT_EVALUATED,
                     severity=ValidationSeverity.WARNING,
@@ -122,10 +131,10 @@ class VatLedgerReconciler:
 
 
 def _to_evidence(
-    key: tuple[str, str],
+    key: tuple[TaxDeclarationType, str, str, str, str],
     rows: list[tuple[VatLedgerAccountMapping, dict[str, object]]],
 ) -> VatLedgerEvidence:
-    declaration_line, currency = key
+    declaration_type, selector_field, amount_field, declaration_line, currency = key
     amount = Decimal(0)
     entry_count = 0
     used_entry_count = 0
@@ -151,6 +160,9 @@ def _to_evidence(
         mapping_ids=tuple(mapping.mapping_id for mapping, _ in rows),
         source_references=tuple(mapping.source_reference for mapping, _ in rows),
         tolerance=max(mapping.tolerance for mapping, _ in rows),
+        declaration_type=declaration_type,
+        record_selector_field=selector_field,
+        declaration_amount_field=amount_field,
     )
 
 
@@ -159,19 +171,37 @@ def _reconcile_evidence(
     evidence: VatLedgerEvidence,
     declaration_currency: str,
 ) -> ValidationCheck:
+    check_id = (
+        f"tax_ledger_{evidence.declaration_type.value}_"
+        f"{evidence.record_selector_field}_{evidence.declaration_line}"
+    )
+    if declaration.declaration_type is not evidence.declaration_type:
+        return ValidationCheck(
+            check_id=check_id,
+            layer=ValidationLayer.RECONCILIATION,
+            status=ValidationStatus.NOT_EVALUATED,
+            severity=ValidationSeverity.WARNING,
+            message="Rapprochement non evalue: type de declaration incompatible.",
+            affected_lines=(evidence.declaration_line,),
+        )
     if evidence.currency != declaration_currency.upper():
         return ValidationCheck(
-            check_id=f"vat_ledger_line_{evidence.declaration_line}",
+            check_id=check_id,
             layer=ValidationLayer.RECONCILIATION,
             status=ValidationStatus.NOT_EVALUATED,
             severity=ValidationSeverity.WARNING,
             message="Rapprochement non evalue: devises incompatibles.",
             affected_lines=(evidence.declaration_line,),
         )
-    declared = _line_amount(declaration, evidence.declaration_line)
+    declared = _record_amount(
+        declaration,
+        selector_field=evidence.record_selector_field,
+        selector_value=evidence.declaration_line,
+        amount_field=evidence.declaration_amount_field,
+    )
     if declared is None:
         return ValidationCheck(
-            check_id=f"vat_ledger_line_{evidence.declaration_line}",
+            check_id=check_id,
             layer=ValidationLayer.RECONCILIATION,
             status=ValidationStatus.NOT_EVALUATED,
             severity=ValidationSeverity.WARNING,
@@ -184,7 +214,7 @@ def _reconcile_evidence(
         and evidence.excluded_entry_count == 0
     )
     return ValidationCheck(
-        check_id=f"vat_ledger_line_{evidence.declaration_line}",
+        check_id=check_id,
         layer=ValidationLayer.RECONCILIATION,
         status=ValidationStatus.PASSED if passed else ValidationStatus.FAILED,
         severity=ValidationSeverity.INFO if passed else ValidationSeverity.ERROR,
@@ -200,15 +230,18 @@ def _reconcile_evidence(
     )
 
 
-def _line_amount(
+def _record_amount(
     declaration: CanonicalTaxDeclaration,
-    line_code: str,
+    *,
+    selector_field: str,
+    selector_value: str,
+    amount_field: str,
 ) -> Decimal | None:
     for record in declaration.records:
         fields = {field.name: field for field in record.fields}
-        code = fields.get("line_code")
-        amount = fields.get("tax_amount")
-        if code is None or str(code.normalized_value) != line_code:
+        selector = fields.get(selector_field)
+        amount = fields.get(amount_field)
+        if selector is None or str(selector.normalized_value) != selector_value:
             continue
         if amount is not None and isinstance(amount.normalized_value, Decimal):
             return amount.normalized_value

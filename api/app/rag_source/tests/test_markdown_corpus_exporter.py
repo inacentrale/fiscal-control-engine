@@ -39,6 +39,10 @@ def test_export_markdown_sources_to_csv_exports_only_validated_sources(
     assert rows[0]["source_type"] == "tax_code"
     assert rows[0]["title"] == "Code fiscal valide"
     assert rows[0]["version"] == "2026"
+    assert rows[0]["applicable_from"] == "2026-01-01"
+    assert rows[0]["applicable_to"] == ""
+    assert rows[0]["applicability_status"] == "confirmed"
+    assert rows[0]["source_url"] == "https://dgi.bf/verification/CGI"
     assert rows[0]["theme"] == "RAS"
     assert rows[0]["text"] == "Texte valide sur la retenue."
 
@@ -81,6 +85,10 @@ def _source_markdown(validation_status: str) -> str:
 - `source_type`: `tax_code`
 - `title`: `Code fiscal valide`
 - `version`: `2026`
+- `applicable_from`: `2026-01-01`
+- `applicable_to`: ``
+- `applicability_status`: `confirmed`
+- `source_url`: `https://dgi.bf/verification/CGI`
 - `language`: `fr`
 - `origin`: `anonymized_reference`
 - `themes`: `RAS; loyers`

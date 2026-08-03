@@ -1,4 +1,13 @@
-policy_id,version,level,rank,required_layers,description
-bf_tax_assurance_limited,v1,limited,1,structure|completeness|arithmetic|fiscal,Declaration controlee sans rapprochement externe complet
-bf_tax_assurance_reinforced,v1,reinforced,2,structure|completeness|arithmetic|fiscal|historical|reconciliation,Declaration rapprochee avec historique et comptabilite
-bf_tax_assurance_high,v1,high,3,structure|completeness|arithmetic|fiscal|historical|reconciliation|supporting_documents|payment_reconciliation,Declaration rapprochee avec comptabilite pieces et paiements
+policy_id,version,level,rank,required_layers,description,declaration_type
+bf_vat_assurance_limited,v2,limited,1,structure|completeness|arithmetic|fiscal,Declaration TVA controlee sans rapprochement externe complet,vat
+bf_vat_assurance_reinforced,v2,reinforced,2,structure|completeness|arithmetic|fiscal|historical|reconciliation,Declaration TVA rapprochee avec historique et comptabilite,vat
+bf_vat_assurance_high,v2,high,3,structure|completeness|arithmetic|fiscal|historical|reconciliation|supporting_documents|payment_reconciliation,Declaration TVA rapprochee avec historique comptabilite pieces et paiements,vat
+bf_withholding_assurance_limited,v2,limited,1,structure|completeness|arithmetic|fiscal,Declaration RAS controlee sans rapprochement externe complet,withholding_tax
+bf_withholding_assurance_reinforced,v2,reinforced,2,structure|completeness|arithmetic|fiscal|reconciliation,Declaration RAS rapprochee avec la comptabilite,withholding_tax
+bf_withholding_assurance_high,v2,high,3,structure|completeness|arithmetic|fiscal|reconciliation|supporting_documents|payment_reconciliation,Declaration RAS rapprochee avec comptabilite pieces et paiements,withholding_tax
+bf_payroll_assurance_limited,v2,limited,1,structure|completeness|fiscal,Declaration IUTS controlee sans rapprochement externe complet,payroll_tax
+bf_payroll_assurance_reinforced,v2,reinforced,2,structure|completeness|fiscal|reconciliation,Declaration IUTS rapprochee avec la comptabilite,payroll_tax
+bf_payroll_assurance_high,v2,high,3,structure|completeness|fiscal|reconciliation|supporting_documents|payment_reconciliation,Declaration IUTS rapprochee avec comptabilite pieces et paiements,payroll_tax
+bf_corporate_assurance_limited,v2,limited,1,structure|completeness|fiscal,Declaration IS controlee sans rapprochement externe complet,corporate_income_tax
+bf_corporate_assurance_reinforced,v2,reinforced,2,structure|completeness|fiscal|historical|reconciliation,Declaration IS rapprochee avec historique et comptabilite,corporate_income_tax
+bf_corporate_assurance_high,v2,high,3,structure|completeness|fiscal|historical|reconciliation|supporting_documents|payment_reconciliation,Declaration IS rapprochee avec historique comptabilite pieces et paiements,corporate_income_tax

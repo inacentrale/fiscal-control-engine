@@ -3,6 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.tax_declaration.corporate_income_tax_tabular_extractor import (
+    CorporateIncomeTaxTabularExtractionError,
+    CorporateIncomeTaxTabularExtractor,
+)
+from app.tax_declaration.corporate_income_tax_text_extractor import (
+    CorporateIncomeTaxDocumentExtractor,
+)
+from app.tax_declaration.corporate_income_tax_xml_extractor import (
+    CorporateIncomeTaxXmlExtractor,
+)
 from app.tax_declaration.document_text_extractor import DocumentTextExtractionError
 from app.tax_declaration.domain import (
     CanonicalTaxDeclaration,
@@ -60,6 +70,13 @@ class TaxDeclarationIngestionService:
         self._payroll_tax_tabular_extractor = PayrollTaxTabularExtractor()
         self._payroll_tax_xml_extractor = PayrollTaxXmlExtractor()
         self._payroll_tax_document_extractor = PayrollTaxDocumentExtractor()
+        self._corporate_income_tax_tabular_extractor = (
+            CorporateIncomeTaxTabularExtractor()
+        )
+        self._corporate_income_tax_xml_extractor = CorporateIncomeTaxXmlExtractor()
+        self._corporate_income_tax_document_extractor = (
+            CorporateIncomeTaxDocumentExtractor()
+        )
 
     def ingest(
         self,
@@ -80,6 +97,7 @@ class TaxDeclarationIngestionService:
             TaxDeclarationType.VAT,
             TaxDeclarationType.WITHHOLDING_TAX,
             TaxDeclarationType.PAYROLL_TAX,
+            TaxDeclarationType.CORPORATE_INCOME_TAX,
         ):
             return _unresolved(detection, expected_type, "extractor_not_available")
 
@@ -89,19 +107,34 @@ class TaxDeclarationIngestionService:
                 DeclarationSourceFormat.CSV,
                 DeclarationSourceFormat.EXCEL,
             }:
-                is_payroll_tax = (
-                    expected_type is TaxDeclarationType.PAYROLL_TAX
+                is_corporate_income_tax = (
+                    expected_type is TaxDeclarationType.CORPORATE_INCOME_TAX
                     or (
                         expected_type is None
-                        and self._payroll_tax_tabular_extractor.is_candidate(
+                        and self._corporate_income_tax_tabular_extractor.is_candidate(
                             source_path,
                             detection.source_reference,
                             sheet_name=sheet_name,
                         )
                     )
                 )
+                is_payroll_tax = (
+                    not is_corporate_income_tax
+                    and (
+                        expected_type is TaxDeclarationType.PAYROLL_TAX
+                        or (
+                            expected_type is None
+                            and self._payroll_tax_tabular_extractor.is_candidate(
+                                source_path,
+                                detection.source_reference,
+                                sheet_name=sheet_name,
+                            )
+                        )
+                    )
+                )
                 is_withholding = (
-                    not is_payroll_tax
+                    not is_corporate_income_tax
+                    and not is_payroll_tax
                     and (
                         expected_type is TaxDeclarationType.WITHHOLDING_TAX
                     or (
@@ -114,7 +147,15 @@ class TaxDeclarationIngestionService:
                     )
                     )
                 )
-                if is_payroll_tax:
+                if is_corporate_income_tax:
+                    declaration = (
+                        self._corporate_income_tax_tabular_extractor.extract(
+                            source_path,
+                            detection.source_reference,
+                            sheet_name=sheet_name,
+                        )
+                    )
+                elif is_payroll_tax:
                     declaration = self._payroll_tax_tabular_extractor.extract(
                         source_path,
                         detection.source_reference,
@@ -158,6 +199,7 @@ class TaxDeclarationIngestionService:
             VatTabularExtractionError,
             WithholdingTabularExtractionError,
             PayrollTaxTabularExtractionError,
+            CorporateIncomeTaxTabularExtractionError,
             DocumentTextExtractionError,
         ):
             return _unresolved(detection, expected_type, "structure_unresolved")
@@ -188,6 +230,18 @@ class TaxDeclarationIngestionService:
                 source_path,
                 source_reference,
             )
+        if expected_type is TaxDeclarationType.CORPORATE_INCOME_TAX:
+            return self._corporate_income_tax_xml_extractor.extract(
+                source_path,
+                source_reference,
+            )
+        try:
+            return self._corporate_income_tax_xml_extractor.extract(
+                source_path,
+                source_reference,
+            )
+        except CorporateIncomeTaxTabularExtractionError:
+            pass
         try:
             return self._payroll_tax_xml_extractor.extract(
                 source_path,
@@ -241,6 +295,31 @@ class TaxDeclarationIngestionService:
                 source_path,
                 source_reference,
             )
+        if expected_type is TaxDeclarationType.CORPORATE_INCOME_TAX:
+            if is_pdf:
+                return self._corporate_income_tax_document_extractor.extract_pdf(
+                    source_path,
+                    source_reference,
+                )
+            return self._corporate_income_tax_document_extractor.extract_image(
+                source_path,
+                source_reference,
+            )
+        try:
+            if is_pdf:
+                return self._corporate_income_tax_document_extractor.extract_pdf(
+                    source_path,
+                    source_reference,
+                )
+            return self._corporate_income_tax_document_extractor.extract_image(
+                source_path,
+                source_reference,
+            )
+        except (
+            CorporateIncomeTaxTabularExtractionError,
+            DocumentTextExtractionError,
+        ):
+            pass
         try:
             if is_pdf:
                 return self._payroll_tax_document_extractor.extract_pdf(

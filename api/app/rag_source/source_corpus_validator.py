@@ -16,6 +16,12 @@ REQUIRED_METADATA_FIELDS = {
     "validated_by",
     "validated_at",
 }
+FISCAL_REQUIRED_METADATA_FIELDS = {
+    "applicable_from",
+    "applicable_to",
+    "source_url",
+    "applicability_status",
+}
 METADATA_PATTERN = re.compile(r"^- `(?P<key>[^`]+)`: `(?P<value>[^`]*)`$", re.MULTILINE)
 IGNORED_SOURCE_FILENAMES = {
     "README.md",
@@ -75,7 +81,10 @@ def _collect_issues(
     metadata: dict[str, str],
 ) -> list[SourceCorpusIssue]:
     issues: list[SourceCorpusIssue] = []
-    missing_fields = sorted(REQUIRED_METADATA_FIELDS - set(metadata))
+    required_fields = REQUIRED_METADATA_FIELDS
+    if metadata.get("domain", "").strip().lower() == "fiscal":
+        required_fields = required_fields | FISCAL_REQUIRED_METADATA_FIELDS
+    missing_fields = sorted(required_fields - set(metadata))
     if missing_fields:
         issues.append(
             SourceCorpusIssue(

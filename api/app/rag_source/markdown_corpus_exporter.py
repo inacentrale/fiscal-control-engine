@@ -14,6 +14,10 @@ CORPUS_EXPORT_COLUMNS = (
     "source_type",
     "title",
     "version",
+    "applicable_from",
+    "applicable_to",
+    "source_url",
+    "applicability_status",
     "block_reference",
     "block_type",
     "theme",
@@ -71,6 +75,16 @@ def _build_rows(blocks: tuple[RagCorpusBlock, ...]) -> list[dict[str, str]]:
                 "source_type": corpus_block.metadata.source_type.value,
                 "title": corpus_block.metadata.title,
                 "version": corpus_block.metadata.version,
+                "applicable_from": _format_optional_date(
+                    corpus_block.metadata.applicable_from,
+                ),
+                "applicable_to": _format_optional_date(
+                    corpus_block.metadata.applicable_to,
+                ),
+                "source_url": corpus_block.metadata.source_url or "",
+                "applicability_status": (
+                    corpus_block.metadata.applicability_status.value
+                ),
                 "block_reference": corpus_block.block.reference,
                 "block_type": corpus_block.block.block_type.value,
                 "theme": corpus_block.block.heading or "",
@@ -78,3 +92,9 @@ def _build_rows(blocks: tuple[RagCorpusBlock, ...]) -> list[dict[str, str]]:
             }
         )
     return rows
+
+
+def _format_optional_date(value: object | None) -> str:
+    if value is None:
+        return ""
+    return str(value)

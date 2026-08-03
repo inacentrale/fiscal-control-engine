@@ -1,0 +1,39 @@
+matrix_id,tax_scope,cgi_article,rule_subject,valid_from,valid_to,legal_source_id,legal_locator,verification_status,gap_reason
+vat_317_2023,TVA,317,tax_rates,2023-01-01,2023-12-31,bf_cgi_consolidated_2023,CGI article 317,confirmed,
+vat_317_2024_2026,TVA,317,tax_rates,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 317,review_required,Verifier les lois initiales et rectificatives 2024-2026 pour confirmer l'absence de modification
+vat_334_2023,TVA,334,monthly_deadline,2023-01-01,2023-12-31,bf_finance_law_2023,article 51 modifiant CGI article 334,confirmed,Edition officielle CGI 2023 integre la modification
+vat_334_2024_2026,TVA,334,monthly_deadline,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 334,review_required,Verifier les lois initiales et rectificatives 2024-2026
+ras_207_2023,RAS,207,resident_rates,2023-01-01,2023-12-31,bf_finance_law_2023,article 35 modifiant CGI article 207,confirmed,Edition officielle CGI 2023 integre la modification
+ras_207_2024,RAS,207,resident_rates,2024-01-01,2024-12-31,bf_finance_law_2024,article 16 modifiant CGI article 207,confirmed,
+ras_207_2025,RAS,207,resident_rates,2025-01-01,2025-12-31,bf_finance_law_2025,article 20 modifiant CGI article 207,confirmed,Verifier encore l'effet de la loi rectificative 2025 non localisee
+ras_207_2026,RAS,207,resident_rates,2026-01-01,2026-12-31,bf_finance_law_2026,article 15 modifiant CGI article 207,confirmed,
+ras_208_2023,RAS,208,resident_deadline,2023-01-01,2023-12-31,bf_cgi_consolidated_2023,CGI article 208 modifie par loi 035-2020 article 15,confirmed,
+ras_208_2024_2026,RAS,208,resident_deadline,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 208,review_required,Verifier les lois initiales et rectificatives 2024-2026
+ras_212_2023,RAS,212,nonresident_rates,2023-01-01,2023-12-31,bf_finance_law_2023,article 36 modifiant CGI article 212,confirmed,Edition officielle CGI 2023 integre la modification
+ras_212_2024_2026,RAS,212,nonresident_rates,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 212,review_required,Verifier les lois initiales et rectificatives 2024-2026
+ras_214_2023,RAS,214,nonresident_deadline,2023-01-01,2023-12-31,bf_cgi_consolidated_2023,CGI article 214 modifie par loi 035-2020 article 16,confirmed,
+ras_214_2024_2026,RAS,214,nonresident_deadline,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 214,review_required,Verifier les lois initiales et rectificatives 2024-2026
+ras_221_2023,RAS,221,non_determined_rates,2023-01-01,2023-12-31,bf_finance_law_2023,article 39 modifiant CGI article 221,confirmed,Edition officielle CGI 2023 integre la modification
+ras_221_2024,RAS,221,non_determined_rates,2024-01-01,2024-12-31,bf_finance_law_2024,article 18 modifiant CGI article 221,confirmed,
+ras_221_2025,RAS,221,non_determined_rates,2025-01-01,2025-12-31,bf_finance_law_2025,article 23 modifiant CGI article 221,confirmed,Verifier encore l'effet de la loi rectificative 2025 non localisee
+ras_221_2026,RAS,221,non_determined_rates,2026-01-01,2026-12-31,bf_finance_law_2026,article 16 modifiant CGI article 221,confirmed,
+ras_222_2023,RAS,222,non_determined_deadline,2023-01-01,2023-12-31,bf_finance_law_2023,article 40 modifiant CGI article 222,confirmed,Edition officielle CGI 2023 integre la modification
+ras_222_2024_2026,RAS,222,non_determined_deadline,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 222,review_required,Verifier les lois initiales et rectificatives 2024-2026
+iuts_112_2023,IUTS,112,progressive_scale,2023-01-01,2023-12-31,bf_cgi_consolidated_2023,CGI article 112,confirmed,
+iuts_112_2024_2026,IUTS,112,progressive_scale,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 112,review_required,Verifier les lois initiales et rectificatives 2024-2026
+iuts_113_2023,IUTS,113,family_reduction,2023-01-01,2023-12-31,bf_cgi_consolidated_2023,CGI article 113 modifie par loi 042-2018 article 25,confirmed,
+iuts_113_2024_2026,IUTS,113,family_reduction,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 113,review_required,Verifier les lois initiales et rectificatives 2024-2026
+iuts_116_2023,IUTS,116,deadline,2023-01-01,2023-12-31,bf_cgi_consolidated_2023,CGI article 116,confirmed,
+iuts_116_2024_2026,IUTS,116,deadline,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 116,review_required,Verifier les lois initiales et rectificatives 2024-2026
+is_87_2023,IS,87,corporate_tax_rate,2023-01-01,2023-12-31,bf_cgi_consolidated_2023,CGI article 87,confirmed,
+is_87_2024_2026,IS,87,corporate_tax_rate,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 87,review_required,Verifier les lois initiales et rectificatives 2024-2026
+is_89_2023,IS,89,minimum_tax,2023-01-01,2023-12-31,bf_finance_law_2023,article 23 modifiant CGI article 89,confirmed,Edition officielle CGI 2023 integre la modification
+is_89_2024_2026,IS,89,minimum_tax,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 89,review_required,Verifier les lois initiales et rectificatives 2024-2026
+is_90_2023,IS,90,new_company_exemption,2023-01-01,2023-12-31,bf_cgi_consolidated_2023,CGI article 90 modifie par loi 042-2018 article 23,confirmed,
+is_90_2024_2026,IS,90,new_company_exemption,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 90,review_required,Verifier les lois initiales et rectificatives 2024-2026
+is_91_2023,IS,91,installments,2023-01-01,2023-12-31,bf_cgi_consolidated_2023,CGI article 91,confirmed,
+is_91_2024_2026,IS,91,installments,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 91,review_required,Verifier les lois initiales et rectificatives 2024-2026
+is_92_2023,IS,92,installment_deadlines,2023-01-01,2023-12-31,bf_cgi_consolidated_2023,CGI article 92 modifie par loi 035-2020 article 13,confirmed,
+is_92_2024_2026,IS,92,installment_deadlines,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 92,review_required,Verifier les lois initiales et rectificatives 2024-2026
+is_95_2023,IS,95,annual_deadline,2023-01-01,2023-12-31,bf_cgi_consolidated_2023,CGI article 95,confirmed,
+is_95_2024_2026,IS,95,annual_deadline,2024-01-01,2026-12-31,bf_cgi_consolidated_2024,CGI article 95,review_required,Verifier les lois initiales et rectificatives 2024-2026

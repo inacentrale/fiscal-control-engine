@@ -1,0 +1,11 @@
+rule_id,version,rule_type,rate,regime,floor_amount,base_field,base_rounding_unit,treatment,calculation_mode,factor,deadline_month,deadline_day,valid_from,valid_to,source_url,source_locator
+is_rate_v2024,v2024,rate,27.50,,,,,,,,,,2024-01-01,,https://dgi.bf/verification/CGI,article 87
+is_minimum_floor_normal_v2024,v2024,minimum_tax_floor,0.50,real_normal,1000000,annual_turnover_excluding_tax,100000,,,,,,2024-01-01,,https://dgi.bf/verification/CGI,articles 88 et 89
+is_minimum_floor_simplified_v2024,v2024,minimum_tax_floor,0.50,real_simplified,300000,annual_turnover_excluding_tax,100000,,,,,,2024-01-01,,https://dgi.bf/verification/CGI,articles 88 et 89
+is_minimum_standard_v2024,v2024,minimum_tax_treatment,,,,,,standard,standard,1,,,2024-01-01,,https://dgi.bf/verification/CGI,articles 88 et 89
+is_minimum_exclusive_v2024,v2024,minimum_tax_treatment,,,,,,exclusive_floor_only,floor_only,1,,,2024-01-01,,https://dgi.bf/verification/CGI,article 89
+is_minimum_cga_v2024,v2024,minimum_tax_treatment,,,,,,approved_management_center,scale_standard,0.5,,,2024-01-01,,https://dgi.bf/verification/CGI,article 89
+is_minimum_cga_exclusive_v2024,v2024,minimum_tax_treatment,,,,,,approved_management_center_exclusive_floor_only,scale_floor,0.5,,,2024-01-01,,https://dgi.bf/verification/CGI,article 89
+is_minimum_new_company_v2024,v2024,minimum_tax_treatment,,,,,,new_company_first_year,exempt,0,,,2024-01-01,,https://dgi.bf/verification/CGI,article 90
+is_deadline_v2024,v2024,deadline,,,,,,,,,4,30,2024-01-01,,https://dgi.bf/verification/CGI,article 95
+is_installment_v2024,v2024,installment,75.00,,,,,,,,,,2024-01-01,,https://dgi.bf/verification/CGI,article 91

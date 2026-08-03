@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     payroll_tax_validation_rules_path: str = (
         "../docs/reference/bf-iuts-validation-rules.csv"
     )
+    corporate_income_tax_validation_rules_path: str = (
+        "../docs/reference/bf-is-validation-rules.csv"
+    )
     tax_assurance_policy_path: str = (
         "../docs/reference/bf-tax-assurance-policy.csv"
     )

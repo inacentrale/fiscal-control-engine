@@ -19,6 +19,9 @@ from app.tax_declaration.validation_domain import (
     ValidationStatus,
 )
 from app.tax_declaration.vat_tabular_extractor import VatTabularExtractor
+from app.tax_declaration.withholding_tabular_extractor import (
+    WithholdingTabularExtractor,
+)
 
 
 def test_reconciles_declaration_invoices_and_payments(tmp_path: Path) -> None:
@@ -125,6 +128,58 @@ def test_rejects_negative_tolerance(tmp_path: Path) -> None:
             declaration_currency="XOF",
             tolerance=Decimal("-1"),
         )
+
+
+def test_reconciles_withholding_evidence_using_explicit_fields(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ras.csv"
+    path.write_text(
+        "N;Categorie;Taux;Montant des retenues\n"
+        "01;Prestations;2%;20000\n",
+        encoding="utf-8",
+    )
+    declaration = WithholdingTabularExtractor().extract(path, _source(path.name))
+    invoice = InvoiceEvidence(
+        invoice_id="F-RAS-1",
+        partner_identifier="PARTNER-001",
+        partner_identifier_type="SYSTEME_SOURCE",
+        net_amount=None,
+        vat_amount=None,
+        gross_amount=Decimal("1000000"),
+        currency="XOF",
+        declaration_line="01",
+        source_reference=_source("ras-evidence.csv"),
+        locator="row:2",
+        declaration_amount=Decimal("20000"),
+    )
+    payment = PaymentEvidence(
+        payment_id="P-RAS-1",
+        invoice_id="F-RAS-1",
+        amount=Decimal("1000000"),
+        currency="XOF",
+        source_reference=_source("payments.csv"),
+        locator="row:2",
+    )
+
+    report = SupportingEvidenceValidator().validate(
+        declaration,
+        (invoice,),
+        (payment,),
+        declaration_currency="XOF",
+        tolerance=Decimal("0"),
+        record_selector_field="line_code",
+        declaration_amount_field="withheld_amount",
+    )
+
+    assert report.overall_status is OverallValidationStatus.PASSED
+    assert all(
+        check.check_id != "supporting_invoice_arithmetic"
+        for check in report.checks
+    )
+    line_check = _check(report, "supporting_invoice_line_01")
+    assert line_check.expected_value == Decimal("20000")
+    assert line_check.actual_value == Decimal("20000")
 
 
 def _invoice(
