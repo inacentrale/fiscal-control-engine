@@ -95,6 +95,7 @@ class LedgerQueryReport:
     message: str
     entries: tuple[dict[str, object], ...]
     sign_convention: str | None = None
+    filter_warnings: tuple[dict[str, object], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,7 @@ class LedgerMetricsReport:
     metrics_by_currency: dict[str, dict[str, float | int]] | None = None
     filters: dict[str, object] | None = None
     balance_reconciliation: dict[str, object] | None = None
+    filter_warnings: tuple[dict[str, object], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -284,6 +286,11 @@ class LedgerAnalysisService:
             message=_query_message(len(dataframe)),
             entries=entries,
             sign_convention=_sign_convention(canonical_frame),
+            filter_warnings=_account_filter_warnings(
+                canonical_frame,
+                _safe_query_filters(filters),
+                len(dataframe),
+            ),
         )
 
     def calculate_metrics(
@@ -355,6 +362,11 @@ class LedgerAnalysisService:
             metrics_by_currency=metrics_by_currency,
             filters=_safe_query_filters(filters),
             balance_reconciliation=balance_reconciliation,
+            filter_warnings=_account_filter_warnings(
+                canonical_frame,
+                _safe_query_filters(filters),
+                len(dataframe),
+            ),
         )
 
     def detect_data_quality_issues(
@@ -542,10 +554,13 @@ def _aggregate_field(
                 balance=balance,
             ),
         )
-    groups_list.sort(
-        key=lambda group: (group.balance, group.entry_count),
-        reverse=True,
-    )
+    if canonical_field == "period":
+        groups_list.sort(key=lambda group: (_period_sort_key(group.key), group.key))
+    else:
+        groups_list.sort(
+            key=lambda group: (group.balance, group.entry_count),
+            reverse=True,
+        )
     groups = tuple(groups_list[: max(1, limit)])
     return LedgerFieldAggregation(
         canonical_field=canonical_field,
@@ -570,6 +585,13 @@ def _currency_column(dataframe: pd.DataFrame, grouped_column: str) -> str | None
         }
     )
     return candidates[0] if candidates else None
+
+
+def _period_sort_key(value: str) -> int:
+    try:
+        return int(value)
+    except ValueError:
+        return 10_000
 
 
 def _filter_frame(
@@ -599,6 +621,40 @@ def _filter_frame(
     if isinstance(amount_max, int | float):
         mask &= dataframe[amount_column].fillna(0) <= amount_max
     return dataframe.loc[mask].copy()
+
+
+def _account_filter_warnings(
+    canonical_frame: _CanonicalLedgerFrame,
+    filters: dict[str, object],
+    filtered_count: int,
+) -> tuple[dict[str, object], ...]:
+    if filtered_count != 0:
+        return ()
+    account_filter = filters.get("account")
+    account_column = canonical_frame.fields.get("account")
+    if account_filter is None or account_column is None:
+        return ()
+    account_prefix = str(account_filter).strip()
+    if not account_prefix:
+        return ()
+    accounts = (
+        canonical_frame.dataframe[account_column].map(_stable_cell_value).astype(str)
+    )
+    prefix_matches = accounts[accounts.str.startswith(account_prefix)]
+    if prefix_matches.empty:
+        return ()
+    distinct_accounts = tuple(sorted(set(prefix_matches)))
+    if account_prefix in distinct_accounts:
+        return ()
+    return (
+        {
+            "warning_type": "account_prefix_matches_only",
+            "account_filter": account_prefix,
+            "matching_entry_count": int(len(prefix_matches)),
+            "matching_account_count": len(distinct_accounts),
+            "sample_accounts": list(distinct_accounts[:10]),
+        },
+    )
 
 
 def _serialize_query_row(

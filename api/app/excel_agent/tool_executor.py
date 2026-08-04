@@ -1533,6 +1533,7 @@ def _serialize_result(
             "message": result.message,
             "entries": list(result.entries),
             "sign_convention": result.sign_convention,
+            "filter_warnings": list(result.filter_warnings),
         }
     if isinstance(result, LedgerMetricsReport):
         return {
@@ -1546,6 +1547,7 @@ def _serialize_result(
             "metrics_by_currency": result.metrics_by_currency,
             "filters": result.filters,
             "balance_reconciliation": result.balance_reconciliation,
+            "filter_warnings": list(result.filter_warnings),
         }
     if isinstance(result, LedgerDataQualityReport):
         return {

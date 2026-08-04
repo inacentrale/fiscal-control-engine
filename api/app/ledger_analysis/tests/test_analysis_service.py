@@ -196,6 +196,67 @@ def test_service_filters_balance_by_fiscal_year(tmp_path: Path) -> None:
     assert report.filters == {"account": "345520", "fiscal_year": "2024"}
 
 
+def test_service_warns_when_account_filter_matches_only_prefix(
+    tmp_path: Path,
+) -> None:
+    workbook_path = _write_posting_key_ledger(
+        tmp_path,
+        posting_keys=["40", "50", "40"],
+    )
+    service = LedgerAnalysisService(
+        excel_tools=ExcelAgentTools(allowed_root=tmp_path),
+        posting_key_rules=_posting_key_rules(),
+    )
+
+    report = service.calculate_metrics(
+        workbook_path,
+        sheet_name="Grand Livre",
+        filters={"account": "34552"},
+        metrics=("balance",),
+    )
+
+    assert report.total_matches == 0
+    assert report.filter_warnings == (
+        {
+            "warning_type": "account_prefix_matches_only",
+            "account_filter": "34552",
+            "matching_entry_count": 3,
+            "matching_account_count": 2,
+            "sample_accounts": ["345520", "34552001"],
+        },
+    )
+
+
+def test_service_orders_period_aggregation_chronologically(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "period_ledger.xlsx"
+    dataframe = pd.DataFrame(
+        {
+            "Compte": ["61365000", "61365000", "61365000"],
+            "Texte": ["P10", "P1", "P2"],
+            "Montant": [1000.0, 10.0, 100.0],
+            "Cle de comptabilisation": ["40", "40", "40"],
+            "Periode": [10, 1, 2],
+        },
+    )
+    with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
+        dataframe.to_excel(writer, sheet_name="Grand Livre", index=False)
+    service = LedgerAnalysisService(
+        excel_tools=ExcelAgentTools(allowed_root=tmp_path),
+        posting_key_rules=_posting_key_rules(),
+    )
+
+    report = service.aggregate(
+        workbook_path,
+        sheet_name="Grand Livre",
+        group_by=("period",),
+        filters={"account": "61365000"},
+    )
+
+    assert [group.key for group in report.aggregations[0].groups] == ["1", "2", "10"]
+
+
 def test_service_aggregation_exposes_debit_credit_and_excluded_rows(
     tmp_path: Path,
 ) -> None:

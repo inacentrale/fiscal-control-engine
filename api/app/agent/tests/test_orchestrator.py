@@ -20,6 +20,7 @@ from app.llm.domain import (
     ToolCall,
 )
 from app.llm.fallback_model import FallbackModelProvider
+from app.llm.internal_provider import InternalControlledModelProvider
 from app.ras_audit.fact_context import (
     RasExplicitFactExtractor,
     RasFactContextAttestor,
@@ -540,6 +541,72 @@ def test_orchestrator_routes_account_question_to_ledger_query(tmp_path: Path) ->
     assert model.calls == 1
     assert model.requests[0].allowed_tools == ()
     assert "44585100" in model.requests[0].messages[-1].content
+
+
+def test_orchestrator_renders_ledger_query_without_llm_narration(
+    tmp_path: Path,
+) -> None:
+    workbook_path = write_minified_grand_livre(tmp_path)
+    orchestrator = _create_orchestrator(tmp_path, InternalControlledModelProvider())
+
+    result = orchestrator.run(
+        AgentRunRequest(
+            user_message="Montre-moi les ecritures du compte 601000.",
+            file_path=workbook_path,
+            sheet_name="Grand Livre",
+            allowed_tools=("query_ledger_entries",),
+        ),
+    )
+
+    assert [tool_result.tool_name for tool_result in result.tool_results] == [
+        "query_ledger_entries",
+    ]
+    assert "Ecritures comptables" in result.answer
+    assert "Correspondances : 1" in result.answer
+    assert "| 601000 |" in result.answer
+    assert "Les controles deterministes sont termines" not in result.answer
+
+
+def test_orchestrator_warns_on_prefix_only_account_query(
+    tmp_path: Path,
+) -> None:
+    workbook_path = write_minified_grand_livre(tmp_path)
+    orchestrator = _create_orchestrator(tmp_path, InternalControlledModelProvider())
+
+    result = orchestrator.run(
+        AgentRunRequest(
+            user_message="Montre-moi les ecritures du compte 601.",
+            file_path=workbook_path,
+            sheet_name="Grand Livre",
+            allowed_tools=("query_ledger_entries",),
+        ),
+    )
+
+    assert "Alerte filtre" in result.answer
+    assert "Aucun compte exact 601" in result.answer
+    assert "601000" in result.answer
+
+
+def test_orchestrator_asks_for_precision_on_ambiguous_total_question(
+    tmp_path: Path,
+) -> None:
+    workbook_path = write_minified_grand_livre(tmp_path)
+    orchestrator = _create_orchestrator(tmp_path, InternalControlledModelProvider())
+
+    result = orchestrator.run(
+        AgentRunRequest(
+            user_message="Quel est le total ?",
+            file_path=workbook_path,
+            sheet_name="Grand Livre",
+            allowed_tools=("analyze_ledger", "calculate_ledger_metrics"),
+        ),
+    )
+
+    assert result.tool_results == ()
+    assert result.provider_name == "internal"
+    assert result.model_name == "deterministic-clarification"
+    assert "demande est trop ambigue" in result.answer
+    assert "somme brute" in result.answer
 
 
 def test_orchestrator_routes_general_excel_explanation_to_analysis_tools(

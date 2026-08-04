@@ -342,11 +342,11 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 
 ### Ordre de challenge GL — priorite actuelle
 
-- [ ] 1. Ambiguites a refuser ou clarifier:
-  - [ ] « Donne-moi le solde du compte 61365 » — compte partiel ou exact ?
-  - [ ] « Montre les ecritures du compte 445 » — prefixe trop large.
-  - [ ] « Quel est le total de 2024 ? » — metrique, compte et devise absents.
-  - [ ] « Analyse les charges » — perimetre et regroupement non precises.
+- [x] 1. Ambiguites a refuser ou clarifier:
+  - [x] « Donne-moi le solde du compte 61365 » — aucun calcul prefixe automatique; alerte sur compte `61365000`.
+  - [x] « Montre les ecritures du compte 445 » — aucun calcul prefixe automatique; alerte sur `44531001`, `44531002`, `44585100`.
+  - [x] « Quel est le total de 2024 ? » — clarification obligatoire: metrique, perimetre et devise.
+  - [x] « Analyse les charges » — clarification obligatoire: metrique, regroupement et perimetre.
 - [ ] 2. Structure simple du fichier:
   - [ ] « Quelles feuilles contient ce fichier ? »
   - [ ] « Quelles colonnes contient la feuille active ? »
@@ -360,7 +360,7 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
   - [ ] « Montre brut, debit, credit, solde, cles utilisees et exclusions par devise. »
   - [ ] « Explique l'ecart avec la somme brute Excel sans modifier le calcul. »
 - [ ] 5. Agregations:
-  - [ ] « Regroupe le compte 61365000 par periode en 2024. »
+  - [x] « Regroupe le compte 61365000 par periode en 2024. » — filtre exercice applique et periodes triees chronologiquement.
   - [ ] « Regroupe debit, credit et solde par compte et devise. »
   - [ ] « Donne les dix comptes aux soldes absolus les plus eleves. »
 - [ ] 6. Qualite et cas limites:
@@ -382,8 +382,8 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 - [ ] 13. Valider volumes, performances, lint, types, tests et non-regression finale.
 
 - [x] Challenger `calculate_ledger_metrics`: filtres compte/exercice/periode, cles debit-credit, montants source negatifs, devise, compte inexistant et invariants de rapprochement (85 tests API passes; challenges runtime reels passes).
-- [x] Challenger partiellement `query_ledger_entries`: filtres compte/exercice, pagination et signe des montants selon les cles; approfondir cles inconnues, multi-devises et pages suivantes.
-- [ ] Challenger `aggregate_ledger`: contrat corrige et valide en runtime (`34211100`: 15 lignes, 9 utilisees, 6 exclues explicites; compte `61365000`/2024 regroupe par periode); terminer le rapprochement Excel multi-devises et valider la regle de classement avant de cocher.
+- [x] Challenger partiellement `query_ledger_entries`: filtres compte/exercice, pagination, signe des montants selon les cles, rendu deterministe et alertes de prefixe de compte; approfondir cles inconnues, multi-devises et pages suivantes.
+- [ ] Challenger `aggregate_ledger`: contrat corrige et valide en runtime (`34211100`: 15 lignes, 9 utilisees, 6 exclues explicites; compte `61365000`/2024 regroupe par periode avec tri chronologique); terminer le rapprochement Excel multi-devises avant de cocher.
 - [ ] Challenger `detect_data_quality_issues`: compteurs techniques rapproches sur 2506 lignes (9 categories conformes), mais corriger le double signalement des memes 6 lignes, distinguer lignes structurelles/vides et limiter `missing_counterparty` aux ecritures dont le tiers est reellement requis avant validation.
 - [ ] Challenger `detect_tax_candidates`: compteurs/montants rapproches et statut `review_required` conforme, mais 87 lignes non-residentes sont double-comptees dans `resident_services`, actions CSV tronquees par virgules non quotees, justification/source/version absentes du payload et comptes serialises avec `.0`; corriger avant validation fiscale.
 - [ ] Challenger `classify_ledger_schema`: mapping reel 11/11 conforme et ambiguite de deux montants correctement bloquee, mais une meme colonne peut etre affectee a `account` et `customer` sans confirmation; `is_usable=true` meme sans cle de comptabilisation alors que les soldes sont impossibles. Ajouter unicite des sources et readiness par capacite avant validation.

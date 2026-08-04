@@ -1,9 +1,11 @@
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
 from typing import Protocol
+from unicodedata import normalize
 
 from app.agent.answer_policy import AgentAnswerPolicy
 from app.agent.constants import AGENT_RUN_TIMEOUT_ANSWER
@@ -287,6 +289,25 @@ class AgentOrchestrator:
         if self._has_timed_out(started_at):
             return _timeout_result(tuple(events))
         if not initial_response.tool_calls:
+            clarification_answer = _ambiguous_file_question_answer(request)
+            if clarification_answer is not None:
+                emit(
+                    AgentRunEvent(
+                        event_type="answer_ready",
+                        title="Precision requise",
+                        message="Precision requise pour calculer le resultat.",
+                        status="completed",
+                        provider_name="internal",
+                        model_name="deterministic-clarification",
+                    ),
+                )
+                return AgentRunResult(
+                    answer=clarification_answer,
+                    provider_name="internal",
+                    model_name="deterministic-clarification",
+                    execution_events=tuple(events),
+                    tool_results=(),
+                )
             deterministic_tool_call = _default_file_tool_call(request)
             if deterministic_tool_call is not None:
                 emit(
@@ -703,6 +724,9 @@ def _deterministic_tool_results_answer(
     aggregation_answer = _aggregation_reconciliation_answer(tool_results)
     if aggregation_answer is not None:
         return aggregation_answer
+    query_answer = _ledger_query_answer(tool_results)
+    if query_answer is not None:
+        return query_answer
     for tool_name in (
         "detect_ras_candidates",
         "detect_tax_candidates",
@@ -887,6 +911,9 @@ def _final_answer_from_model_or_tools(
     aggregation_answer = _aggregation_reconciliation_answer(tool_results)
     if aggregation_answer is not None:
         return aggregation_answer
+    query_answer = _ledger_query_answer(tool_results)
+    if query_answer is not None:
+        return query_answer
     if _is_controlled_internal_response(final_response):
         return _deterministic_tool_results_answer(tool_results)
     if not final_response.text.strip():
@@ -1002,6 +1029,91 @@ def _aggregation_reconciliation_answer(
     return "\n".join(lines)
 
 
+def _ledger_query_answer(
+    tool_results: tuple[ToolExecutionResult, ...],
+) -> str | None:
+    successful_results = tuple(result for result in tool_results if result.ok)
+    if len(successful_results) != 1:
+        return None
+    result = successful_results[0]
+    if result.tool_name != "query_ledger_entries":
+        return None
+    entries = result.output.get("entries")
+    if not isinstance(entries, list):
+        return None
+    filters = result.output.get("filters")
+    filter_text = "Aucun"
+    if isinstance(filters, dict) and filters:
+        filter_text = ", ".join(f"{key} = {value}" for key, value in filters.items())
+    total_matches = result.output.get("total_matches", 0)
+    page = result.output.get("page", 1)
+    page_size = result.output.get("page_size", len(entries))
+    lines = [
+        "**Ecritures comptables**",
+        "",
+        f"Filtres appliques : {filter_text}",
+        f"Correspondances : {_plain_int(total_matches)}",
+        f"Page : {_plain_int(page)} (taille {_plain_int(page_size)})",
+    ]
+    if not entries:
+        lines.extend(
+            (
+                "",
+                "Aucune ecriture ne correspond aux filtres. Ce resultat ne doit pas "
+                "etre interprete comme un solde nul.",
+            )
+        )
+        lines.extend(_filter_warning_lines(result.output.get("filter_warnings")))
+        return "\n".join(lines)
+
+    headers = (
+        ("account", "Compte"),
+        ("amount", "Montant signe"),
+        ("posting_key", "Cle"),
+        ("currency", "Devise"),
+        ("period", "Periode"),
+        ("fiscal_year", "Exercice"),
+        ("document_type", "Type piece"),
+        ("tax_code", "Code fiscal"),
+        ("vendor", "Fournisseur"),
+        ("customer", "Client"),
+    )
+    present_headers = tuple(
+        header
+        for header in headers
+        if any(isinstance(entry, dict) and header[0] in entry for entry in entries)
+    )
+    lines.extend(
+        (
+            "",
+            "| " + " | ".join(label for _, label in present_headers) + " |",
+            "| "
+            + " | ".join(
+                "---:" if key == "amount" else "---"
+                for key, _ in present_headers
+            )
+            + " |",
+        )
+    )
+    for entry in entries[:20]:
+        if not isinstance(entry, dict):
+            continue
+        cells = [
+            _markdown_cell(_format_query_value(entry.get(key), key))
+            for key, _ in present_headers
+        ]
+        lines.append("| " + " | ".join(cells) + " |")
+    if result.output.get("sign_convention") == "debit_positive_credit_negative":
+        lines.extend(
+            (
+                "",
+                "Convention : montant signe = debit positif, credit negatif, "
+                "d'apres les cles de comptabilisation connues.",
+            )
+        )
+    return "\n".join(lines)
+
+
 def _balance_reconciliation_answer(
     tool_results: tuple[ToolExecutionResult, ...],
 ) -> str | None:
@@ -1048,6 +1160,7 @@ def _balance_reconciliation_answer(
                 "solde nul.",
             )
         )
+        lines.extend(_filter_warning_lines(result.output.get("filter_warnings")))
         return "\n".join(lines)
     if used_entry_count == 0:
         lines.extend(
@@ -1155,13 +1268,116 @@ def _amount_value(
     return f"{formatted} {currency}" if currency else formatted
 
 
+def _filter_warning_lines(raw_warnings: object) -> list[str]:
+    if not isinstance(raw_warnings, list) or not raw_warnings:
+        return []
+    lines = ["", "**Alerte filtre**"]
+    for warning in raw_warnings:
+        if not isinstance(warning, dict):
+            continue
+        if warning.get("warning_type") != "account_prefix_matches_only":
+            continue
+        samples = warning.get("sample_accounts")
+        sample_text = (
+            ", ".join(str(account) for account in samples)
+            if isinstance(samples, list)
+            else "non disponible"
+        )
+        lines.append(
+            "Aucun compte exact "
+            f"{warning.get('account_filter')} n'a ete trouve, mais "
+            f"{warning.get('matching_entry_count', 0)} ecriture(s) existent sur "
+            f"{warning.get('matching_account_count', 0)} compte(s) commencant par "
+            f"ce prefixe : {sample_text}."
+        )
+    return lines if len(lines) > 2 else []
+
+
 def _integer_value(values: dict[str, object], key: str) -> int:
     value = values.get(key, 0)
     return int(value) if isinstance(value, int | float) else 0
 
 
+def _plain_int(value: object) -> int:
+    return int(value) if isinstance(value, int | float) else 0
+
+
+def _format_query_value(value: object, key: str) -> str:
+    if value is None or value == "":
+        return "Sans valeur"
+    if key == "amount" and isinstance(value, int | float):
+        return f"{value:,.2f}".replace(",", " ")
+    return str(value)
+
+
+def _markdown_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ").strip()
+
+
 def _is_controlled_internal_response(response: ModelResponse) -> bool:
     return response.provider_name in {"internal", "internal-fallback"}
+
+
+def _ambiguous_file_question_answer(request: AgentRunRequest) -> str | None:
+    if request.file_path is None or request.sheet_name is None:
+        return None
+    message = _normalize_for_ambiguity(request.user_message)
+    if not _looks_like_ambiguous_metric_question(message):
+        return None
+    return (
+        "La demande est trop ambigue pour calculer un montant fiable.\n\n"
+        "Precise au minimum la metrique attendue, par exemple : somme brute, "
+        "total debit, total credit ou solde. Ajoute aussi le perimetre si "
+        "necessaire : compte, exercice, periode et devise."
+    )
+
+
+def _looks_like_ambiguous_metric_question(message: str) -> bool:
+    asks_metric = any(
+        phrase in message
+        for phrase in (
+            "quel est le total",
+            "donne le total",
+            "calcule le total",
+            "total de",
+            "total du",
+            "analyse les charges",
+        )
+    )
+    if not asks_metric:
+        return False
+    has_explicit_metric = any(
+        phrase in message
+        for phrase in (
+            "somme brute",
+            "total debit",
+            "total credit",
+            "solde",
+            "nombre",
+            "moyenne",
+            "min",
+            "max",
+        )
+    )
+    has_grouping = any(
+        phrase in message
+        for phrase in (
+            "par compte",
+            "par periode",
+            "par devise",
+            "par fournisseur",
+            "par client",
+            "par type",
+        )
+    )
+    has_account = re.search(r"\bcompte\s+\d{3,12}\b", message) is not None
+    return not (has_explicit_metric or has_grouping or has_account)
+
+
+def _normalize_for_ambiguity(value: str) -> str:
+    without_accents = normalize("NFKD", value)
+    ascii_value = without_accents.encode("ascii", "ignore").decode("ascii")
+    return " ".join(re.sub(r"[^a-zA-Z0-9]+", " ", ascii_value.lower()).split())
 
 
 def normalize_answer_summary(message: str) -> str:
@@ -1378,6 +1594,7 @@ def _compact_tool_output(tool_result: ToolExecutionResult) -> dict[str, object]:
         "balance_reconciliation",
         "total_matches",
         "filters",
+        "filter_warnings",
         "page",
         "page_size",
         "returned_columns",
