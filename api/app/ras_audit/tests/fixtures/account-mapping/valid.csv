@@ -1,0 +1,6 @@
+mapping_id,version,role,match_type,account_pattern,normal_side,company_code,valid_from,valid_to,organization_reference
+SYN-MAP-001,SYN-v1,expense_candidate,prefix,63,debit,SYN-CO,2025-01-01,,Synthetic chart fixture
+SYN-MAP-002,SYN-v1,ras_payable,exact,447100,credit,SYN-CO,2025-01-01,,Synthetic chart fixture
+SYN-MAP-003,SYN-v1,ras_payable,exact,447200,credit,SYN-CO,2024-01-01,2024-12-31,Synthetic historical fixture
+SYN-MAP-004,SYN-v1,expense_candidate,prefix,063,debit,SYN-CO,2025-01-01,,Synthetic leading-zero fixture
+SYN-MAP-005,SYN-v1,ras_payable,exact,0447100,credit,SYN-CO,2025-01-01,,Synthetic leading-zero fixture

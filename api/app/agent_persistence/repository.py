@@ -16,6 +16,7 @@ from app.agent_persistence.models import (
     AgentRunModel,
     AgentSessionModel,
     AgentToolResultModel,
+    RasAuditRunModel,
 )
 
 
@@ -217,6 +218,11 @@ class SqlAlchemyAgentRepository:
                         created_at=now,
                     ),
                 )
+                audit_id = tool_result.output.get("audit_id")
+                if isinstance(audit_id, str):
+                    audit = session.get(RasAuditRunModel, audit_id)
+                    if audit is not None:
+                        audit.agent_run_id = run_id
             session.commit()
         return run_id
 
@@ -241,14 +247,16 @@ class SqlAlchemyAgentRepository:
                 if conversation_key in seen_conversations:
                     continue
                 seen_conversations.add(conversation_key)
-                conversations.append(AgentConversationSummary(
-                    run_id=run.run_id,
-                    session_id=run.session_id,
-                    file_id=run.file_id,
-                    title=_title_from_message(run.user_message),
-                    status=_conversation_status(run.provider_name),
-                    created_at=_as_utc(run.created_at),
-                ))
+                conversations.append(
+                    AgentConversationSummary(
+                        run_id=run.run_id,
+                        session_id=run.session_id,
+                        file_id=run.file_id,
+                        title=_title_from_message(run.user_message),
+                        status=_conversation_status(run.provider_name),
+                        created_at=_as_utc(run.created_at),
+                    )
+                )
                 if len(conversations) >= safe_limit:
                     break
             return tuple(conversations)
@@ -271,9 +279,7 @@ class SqlAlchemyAgentRepository:
                     ),
                 )
             files = session.scalars(
-                statement
-                .order_by(desc(AgentFileModel.created_at))
-                .limit(safe_limit),
+                statement.order_by(desc(AgentFileModel.created_at)).limit(safe_limit),
             ).all()
             return tuple(
                 AgentFileSummary(

@@ -1,6 +1,13 @@
 from pathlib import Path
 
-from app.agent.orchestrator import AgentOrchestrator, AgentRunEvent, AgentRunRequest
+from app.agent.orchestrator import (
+    AgentOrchestrator,
+    AgentRunEvent,
+    AgentRunRequest,
+    _single_candidate_ras_followup,
+    _with_request_context,
+)
+from app.excel_agent.domain import ToolExecutionResult
 from app.excel_agent.excel_tools import ExcelAgentTools
 from app.excel_agent.tests.fixtures import write_minified_grand_livre
 from app.excel_agent.tool_executor import ExcelToolExecutor
@@ -13,6 +20,17 @@ from app.llm.domain import (
     ToolCall,
 )
 from app.llm.fallback_model import FallbackModelProvider
+from app.ras_audit.fact_context import (
+    RasExplicitFactExtractor,
+    RasFactContextAttestor,
+    load_ras_user_fact_patterns,
+)
+from app.ras_audit.legal_rules import load_ras_legal_rules
+from app.ras_audit.tax_event_rules import load_ras_tax_event_rules
+from app.ras_audit.tax_rag_query import TaxRagQueryService
+from app.ras_audit.theoretical_calculation import load_ras_calculation_parameters
+
+ROOT = Path(__file__).resolve().parents[4]
 
 
 def test_orchestrator_returns_model_answer_without_tool_call(tmp_path: Path) -> None:
@@ -49,6 +67,196 @@ def test_orchestrator_returns_model_answer_without_tool_call(tmp_path: Path) -> 
         "model_requested",
         "answer_ready",
     ]
+
+
+def test_request_context_is_not_injected_into_non_file_tools() -> None:
+    request = AgentRunRequest(
+        user_message="Question fiscale",
+        file_path=Path("ledger.xlsx"),
+        sheet_name="GL",
+        allowed_tools=("query_tax_rag",),
+    )
+
+    contextualized = _with_request_context(
+        ToolCall(name="query_tax_rag", arguments={"query": "RAS resident"}),
+        request,
+    )
+
+    assert contextualized.arguments == {"query": "RAS resident"}
+
+
+def test_single_candidate_batch_builds_safe_deterministic_followup() -> None:
+    request = AgentRunRequest(
+        user_message="Audite la RAS.",
+        file_path=Path("ledger.xlsx"),
+        sheet_name="GL",
+        allowed_tools=("run_ras_audit_batch", "assess_ras_accounting"),
+    )
+    batch = ToolExecutionResult(
+        tool_name="run_ras_audit_batch",
+        ok=True,
+        output={
+            "audit_id": "audit-1",
+            "review_candidate_ids": ["candidate-1"],
+            "remaining_candidate_count": 0,
+        },
+    )
+
+    followup = _single_candidate_ras_followup((batch,), request)
+
+    assert followup == ToolCall(
+        name="assess_ras_accounting",
+        arguments={"base_audit_id": "audit-1", "candidate_id": "candidate-1"},
+    )
+
+
+def test_multi_candidate_batch_never_applies_user_facts_globally() -> None:
+    request = AgentRunRequest(
+        user_message="Audite la RAS.",
+        file_path=Path("ledger.xlsx"),
+        sheet_name="GL",
+        allowed_tools=("run_ras_audit_batch", "assess_ras_accounting"),
+    )
+    batch = ToolExecutionResult(
+        tool_name="run_ras_audit_batch",
+        ok=True,
+        output={
+            "audit_id": "audit-1",
+            "review_candidate_ids": ["candidate-1", "candidate-2"],
+            "remaining_candidate_count": 0,
+        },
+    )
+
+    assert _single_candidate_ras_followup((batch,), request) is None
+
+
+def test_tax_rag_answer_keeps_citations_even_if_model_text_is_unsourced(
+    tmp_path: Path,
+) -> None:
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text="Réponse non sourcée du modèle.",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="stop",
+                tool_calls=(),
+            ),
+        )
+    )
+    orchestrator = AgentOrchestrator(
+        model_provider=model,
+        tool_executor=ExcelToolExecutor(
+            tools=ExcelAgentTools(allowed_root=tmp_path),
+            registry=create_excel_tool_registry(),
+            tax_rag_query_service=TaxRagQueryService(
+                Path("../docs/source-corpus/fiscal")
+            ),
+        ),
+    )
+
+    result = orchestrator.run(
+        AgentRunRequest(
+            user_message="Que dit le CGI sur la RAS des prestataires résidents ?",
+            file_path=None,
+            sheet_name=None,
+            allowed_tools=("query_tax_rag",),
+        )
+    )
+
+    assert "Sources fiscales retrouvées" in result.answer
+    assert "Source : https://" in result.answer
+    assert "Empreinte SHA-256" in result.answer
+    assert "Réponse non sourcée du modèle" not in result.answer
+
+
+def test_orchestrator_routes_explicit_dated_ras_calculation_end_to_end(
+    tmp_path: Path,
+) -> None:
+    message = (
+        "Le prestataire résident est un prestataire immatriculé à l'IFU. "
+        "Il s'agit d'une prestation de services, avec un payeur éligible à la "
+        "retenue sur prestations et un service utilisé au Burkina Faso. "
+        "Aucune exonération applicable. L'assiette fiscale est de 100 000 XOF. "
+        "Le paiement effectué le 2026-04-10. Calcule la RAS."
+    )
+    message += " Reference partenaire SECRET-PARTENAIRE-42."
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text="Calcul déterministe terminé.",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="stop",
+                tool_calls=(),
+            ),
+        )
+    )
+    attestor = RasFactContextAttestor("test-signing-key-with-at-least-32-bytes")
+    orchestrator = AgentOrchestrator(
+        model_provider=model,
+        tool_executor=ExcelToolExecutor(
+            tools=ExcelAgentTools(allowed_root=tmp_path),
+            registry=create_excel_tool_registry(),
+            ras_legal_rules=load_ras_legal_rules(
+                ROOT / "docs/reference/bf-ras-legal-rules.csv",
+                repository_root=ROOT,
+            ),
+            ras_tax_event_rules=load_ras_tax_event_rules(
+                ROOT / "docs/reference/bf-ras-tax-event-rules.csv",
+                repository_root=ROOT,
+            ),
+            ras_calculation_parameters=load_ras_calculation_parameters(
+                ROOT / "docs/reference/bf-ras-calculation-parameters.csv",
+                repository_root=ROOT,
+            ),
+            ras_fact_context_attestor=attestor,
+        ),
+        ras_fact_extractor=RasExplicitFactExtractor(
+            load_ras_user_fact_patterns(
+                ROOT / "docs/reference/ras-user-fact-patterns.csv"
+            )
+        ),
+        ras_fact_attestor=attestor,
+    )
+
+    result = orchestrator.run(
+        AgentRunRequest(
+            user_message=message,
+            file_path=None,
+            sheet_name=None,
+            allowed_tools=("calculate_theoretical_ras",),
+            session_id="session-1",
+        )
+    )
+
+    assert model.calls == 0
+    assert len(result.tool_results) == 1
+    assert result.tool_results[0].ok is True
+    assert result.tool_results[0].output["calculation_status"] == (
+        "calculated_provisional"
+    )
+    assert result.tool_results[0].output["expected_amount"] == "5000"
+    assert result.tool_results[0].output["currency"] == "XOF"
+    assert "5000 XOF" in result.answer
+    assert "SECRET-PARTENAIRE-42" not in repr(model.requests)
+
+    incomplete = orchestrator.run(
+        AgentRunRequest(
+            user_message="Calcule la RAS, paiement effectué le 2026-04-10.",
+            file_path=None,
+            sheet_name=None,
+            allowed_tools=("calculate_theoretical_ras",),
+            session_id="session-1",
+        )
+    )
+
+    assert model.calls == 0
+    assert incomplete.tool_results[0].output["calculation_status"] == (
+        "not_calculable"
+    )
+    assert "Calcul RAS non effectue" in incomplete.answer
+    assert "Aucun montant ni taux" in incomplete.answer
 
 
 def test_orchestrator_executes_excel_tool_then_requests_final_answer(
@@ -107,9 +315,7 @@ def test_orchestrator_executes_excel_tool_then_requests_final_answer(
         "model_requested",
         "answer_ready",
     ]
-    assert result.execution_events[3].message == (
-        "Analyse de la feuille Excel prête."
-    )
+    assert result.execution_events[3].message == ("Analyse de la feuille Excel prête.")
     assert result.execution_events[5].message == (
         "L'analyse de la feuille Excel est terminée: 4 lignes, 5 colonnes."
     )
@@ -649,16 +855,19 @@ def test_orchestrator_emits_safe_user_facing_events(tmp_path: Path) -> None:
         AgentRunRequest(
             user_message="Analyse /secret/client.xlsx",
             file_path=secret_path,
-            sheet_name="Grand Livre",
+            sheet_name="Client Confidentiel 2025",
             allowed_tools=("profile_sheet",),
         ),
         event_sink=emitted_events.append,
     )
 
     serialized_events = repr(result.execution_events)
+    serialized_model_requests = repr(model.requests)
     assert emitted_events == list(result.execution_events)
     assert "/secret/client.xlsx" not in serialized_events
     assert str(secret_path) not in serialized_events
+    assert str(secret_path) not in serialized_model_requests
+    assert "Client Confidentiel 2025" not in serialized_model_requests
 
 
 def test_orchestrator_blocks_direct_tax_decision_in_answer(tmp_path: Path) -> None:

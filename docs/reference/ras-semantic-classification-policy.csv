@@ -1,0 +1,2 @@
+version,minimum_similarity,minimum_margin,maximum_label_characters,calibration_status,decision_effect
+1.0.0,0.72,0.08,500,baseline_unvalidated,review_only

@@ -106,7 +106,11 @@ from app.tax_declaration.withholding_validation_service import (
     WithholdingDeclarationValidator,
 )
 
-router = APIRouter(prefix="/tax-declarations", tags=["tax-declarations"])
+router = APIRouter(
+    prefix="/tax-declarations",
+    tags=["tax-declarations-experimental"],
+    deprecated=True,
+)
 SettingsDependency = Annotated[Settings, Depends(get_settings)]
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
 

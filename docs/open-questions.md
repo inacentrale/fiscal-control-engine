@@ -28,6 +28,24 @@ Ce document garde les questions et decisions a reprendre plus tard. Elles ne blo
 - Quels libelles comptables permettent une pre-classification automatique fiable ?
 - Quels comptes doivent obligatoirement rester en validation metier ?
 
+### Contradiction des echeances RAS a corriger avant activation
+
+- `docs/reference/bf-withholding-deadline-rules.csv` indique le jour 15 pour les regimes resident et non-resident.
+- Les extraits locaux `bf-ras-residents.md` (article 208) et `bf-ras-non-residents.md` (article 214) indiquent le jour 20 du mois suivant.
+- `bf-loyers.md` (article 217) indique le jour 10 du mois suivant pour les retenues sur loyers.
+- Le nouveau moteur ne doit utiliser aucune de ces echeances avant correction et validation par periode du referentiel.
+
+### Champ des contribuables non determines incomplet
+
+- Les lois de finances 2024-2026 confirment des taux a l'article 221, mais le corpus local ne contient pas le texte complet de l'article 220 definissant le champ.
+- Les variantes concernees sont inventoriees dans `bf-ras-legal-rules.csv` avec le statut `blocked_missing_scope_source`; leurs taux ne sont jamais activables en calcul.
+
+### Fait generateur RAS modelise, assurance juridique encore provisoire
+
+- `bf-ras-tax-event-rules.csv` distingue le paiement resident, la mise en paiement non-resident et le loyer acquis pour la periode, avec articles, URL et empreintes.
+- La resolution exige le statut et la date de l'evenement attestes; l'evaluation GL date la regle sur cet evenement et non sur la seule date comptable de charge.
+- Le referentiel reste `active_provisional` sans revue fiscale externe; cette assurance doit etre levee avant le gate de production.
+
 ## Donnees et Stockage
 
 - Le stockage fichier/memoire suffit-il jusqu'a la validation du POC ?

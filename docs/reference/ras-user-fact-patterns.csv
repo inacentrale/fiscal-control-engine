@@ -1,0 +1,26 @@
+pattern_id,version,fact_name,phrase,normalized_value
+residence-resident-fr,2026-08-04,residence_status,prestataire résident,resident
+residence-resident-bf-fr,2026-08-04,residence_status,prestataire résident au Burkina Faso,resident
+residence-nonresident-fr,2026-08-04,residence_status,prestataire non résident,nonresident
+residence-nonresident-compact-fr,2026-08-04,residence_status,prestataire non-résident,nonresident
+ifu-registered-fr,2026-08-04,ifu_status,prestataire immatriculé à l'IFU,registered
+ifu-unregistered-fr,2026-08-04,ifu_status,prestataire non immatriculé à l'IFU,unregistered
+establishment-present-fr,2026-08-04,stable_establishment_status,dispose d'un établissement stable,true
+establishment-absent-fr,2026-08-04,stable_establishment_status,ne dispose pas d'établissement stable,false
+operation-service-fr,2026-08-04,operation_type,prestation de services,service_any
+operation-construction-fr,2026-08-04,operation_type,travaux de construction,construction_work
+operation-staffing-fr,2026-08-04,operation_type,mise à disposition de personnel,temporary_staffing
+operation-rent-fr,2026-08-04,operation_type,location immobilière,real_estate_rental
+treaty-none-fr,2026-08-04,treaty_override_status,aucune convention fiscale applicable,false
+exemption-none-fr,2026-08-04,exemption_status,aucune exonération applicable,not_exempt
+payer-eligible-service-fr,2026-08-04,payer_type,payeur éligible à la retenue sur prestations,eligible_service_payer
+service-use-bf-fr,2026-08-04,service_use_location,service utilisé au Burkina Faso,BF
+beneficiary-nonsalaried-fr,2026-08-04,beneficiary_type,bénéficiaire non salarié,non_salaried
+tax-base-amount-fr,2026-08-04,tax_base_amount,assiette fiscale,$amount_with_currency
+taxable-base-amount-fr,2026-08-04,tax_base_amount,base imposable,$amount_with_currency
+payment-amount-fr,2026-08-04,payment_amount,montant du paiement,$amount_with_currency
+gross-rent-amount-fr,2026-08-04,gross_rent_excluding_vat,loyer brut hors TVA,$amount_with_currency
+payment-date-paid-fr,2026-08-04,payment_date,paiement effectue le,$iso_date_with_fact:payment_status:paid
+payment-date-put-fr,2026-08-04,payment_date,mise en paiement le,$iso_date_with_fact:payment_status:put_in_payment
+rent-period-accrued-fr,2026-08-04,tax_period_end_date,loyer acquis au,$iso_date_with_fact:rent_accrual_status:accrued
+payment-not-made-fr,2026-08-04,payment_status,paiement non effectue,not_paid

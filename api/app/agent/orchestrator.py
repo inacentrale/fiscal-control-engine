@@ -21,6 +21,10 @@ from app.llm.domain import (
     ModelToolDefinition,
     ToolCall,
 )
+from app.ras_audit.fact_context import (
+    RasExplicitFactExtractor,
+    RasFactContextAttestor,
+)
 
 
 @dataclass(frozen=True)
@@ -41,6 +45,8 @@ class AgentRunRequest:
     sheet_name: str | None
     allowed_tools: tuple[str, ...]
     direct_tool_call: ToolCall | None = None
+    session_id: str | None = None
+    file_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +72,8 @@ class AgentOrchestrator:
         max_answer_characters: int = 4_000,
         max_run_seconds: float = 60.0,
         monotonic: Callable[[], float] = monotonic,
+        ras_fact_extractor: RasExplicitFactExtractor | None = None,
+        ras_fact_attestor: RasFactContextAttestor | None = None,
     ) -> None:
         if max_tool_calls < 1:
             raise ValueError("max_tool_calls must be positive")
@@ -79,6 +87,8 @@ class AgentOrchestrator:
         self._answer_policy = AgentAnswerPolicy(
             max_answer_characters=max_answer_characters,
         )
+        self._ras_fact_extractor = ras_fact_extractor
+        self._ras_fact_attestor = ras_fact_attestor
 
     def run(
         self,
@@ -155,6 +165,22 @@ class AgentOrchestrator:
                 provider_name="internal",
                 model_name="deterministic-tool-router",
             )
+            followup_call = _single_candidate_ras_followup(
+                stable_tool_results,
+                request,
+            )
+            if (
+                followup_call is not None
+                and len(stable_tool_results) < self._max_tool_calls
+            ):
+                followup_results = self._execute_tool_calls(
+                    tool_calls=(followup_call,),
+                    request=request,
+                    emit=emit,
+                    provider_name="internal",
+                    model_name="deterministic-ras-chain",
+                )
+                stable_tool_results = (*stable_tool_results, *followup_results)
             if self._has_timed_out(started_at):
                 return _timeout_result(tuple(events))
             if any(not result.ok for result in stable_tool_results):
@@ -172,6 +198,25 @@ class AgentOrchestrator:
                     answer="Le tool call a ete refuse par les garde-fous.",
                     provider_name="internal",
                     model_name="deterministic-tool-router",
+                    execution_events=tuple(events),
+                    tool_results=stable_tool_results,
+                )
+            secure_answer = _secure_deterministic_answer(stable_tool_results)
+            if secure_answer is not None:
+                emit(
+                    AgentRunEvent(
+                        event_type="answer_ready",
+                        title="Reponse prete",
+                        message="Reponse prete.",
+                        status="completed",
+                        provider_name="internal",
+                        model_name="deterministic-fiscal-answer",
+                    ),
+                )
+                return AgentRunResult(
+                    answer=secure_answer,
+                    provider_name="internal",
+                    model_name="deterministic-fiscal-answer",
                     execution_events=tuple(events),
                     tool_results=stable_tool_results,
                 )
@@ -249,8 +294,7 @@ class AgentOrchestrator:
                         event_type="tool_requested",
                         title="Analyse préparée",
                         message=(
-                            f"{_tool_user_label(deterministic_tool_call.name)} "
-                            "prête."
+                            f"{_tool_user_label(deterministic_tool_call.name)} prête."
                         ),
                         status="completed",
                         tool_name=deterministic_tool_call.name,
@@ -402,7 +446,19 @@ class AgentOrchestrator:
                 error_code="tool_not_allowed",
                 error_message=f"tool is not allowed: {tool_call.name}",
             )
-        return self._tool_executor.execute(tool_call)
+        fact_context_token = None
+        if self._ras_fact_extractor is not None and self._ras_fact_attestor is not None:
+            extraction = self._ras_fact_extractor.extract(request.user_message)
+            fact_context_token = self._ras_fact_attestor.issue(
+                message=request.user_message,
+                extraction=extraction,
+                session_id=request.session_id,
+                file_id=request.file_id,
+            )
+        return self._tool_executor.execute(
+            tool_call,
+            ras_fact_context_token=fact_context_token,
+        )
 
     def _has_timed_out(self, started_at: float) -> bool:
         return self._monotonic() - started_at > self._max_run_seconds
@@ -518,6 +574,7 @@ def _tool_user_label(tool_name: str) -> str:
         "calculate_ledger_metrics": "Calcul de métriques",
         "detect_data_quality_issues": "Contrôle qualité des données",
         "detect_tax_candidates": "Détection des candidats fiscaux",
+        "detect_ras_candidates": "Détection des candidats RAS",
     }
     return labels.get(tool_name, "Analyse demandée")
 
@@ -565,6 +622,11 @@ def _tool_result_summary(tool_result: ToolExecutionResult) -> str:
         if isinstance(candidates, list):
             return f"{len(candidates)} catégorie(s) candidate(s) à revoir."
         return "La détection des candidats fiscaux est terminée."
+    if tool_result.tool_name == "detect_ras_candidates":
+        candidate_count = tool_result.output.get("candidate_piece_count")
+        if isinstance(candidate_count, int):
+            return f"{candidate_count} pièce(s) candidate(s) RAS à revoir."
+        return "La détection des candidats RAS est terminée."
     if tool_result.tool_name == "list_sheets":
         sheet_count = len(tool_result.output.get("sheet_names", ()))
         return f"{sheet_count} feuille(s) détectée(s) dans le fichier."
@@ -632,6 +694,9 @@ def _deterministic_tool_answer(tool_result: ToolExecutionResult) -> str:
 def _deterministic_tool_results_answer(
     tool_results: tuple[ToolExecutionResult, ...],
 ) -> str:
+    secure_answer = _secure_deterministic_answer(tool_results)
+    if secure_answer is not None:
+        return secure_answer
     balance_answer = _balance_reconciliation_answer(tool_results)
     if balance_answer is not None:
         return balance_answer
@@ -639,6 +704,7 @@ def _deterministic_tool_results_answer(
     if aggregation_answer is not None:
         return aggregation_answer
     for tool_name in (
+        "detect_ras_candidates",
         "detect_tax_candidates",
         "detect_data_quality_issues",
         "analyze_ledger",
@@ -653,11 +719,168 @@ def _deterministic_tool_results_answer(
     return "Les contrôles déterministes sont terminés."
 
 
+def _secure_deterministic_answer(
+    tool_results: tuple[ToolExecutionResult, ...],
+) -> str | None:
+    tax_rag_answer = _tax_rag_answer(tool_results)
+    return (
+        tax_rag_answer
+        if tax_rag_answer is not None
+        else _ras_tool_answer(tool_results)
+    )
+
+
+def _ras_tool_answer(
+    tool_results: tuple[ToolExecutionResult, ...],
+) -> str | None:
+    result = next(
+        (
+            item
+            for item in reversed(tool_results)
+            if item.ok
+            and item.tool_name
+            in {
+                "assess_ras_accounting",
+                "calculate_theoretical_ras",
+                "resolve_applicable_ras_rule",
+                "run_ras_audit_batch",
+                "find_ras_counterpart",
+            }
+        ),
+        None,
+    )
+    if result is None:
+        return None
+    output = result.output
+    if result.tool_name == "calculate_theoretical_ras":
+        status = str(output.get("calculation_status") or "indisponible")
+        if status != "calculated_provisional":
+            return _incomplete_ras_answer(
+                "Calcul RAS non effectue",
+                status,
+                output.get("reason"),
+                output.get("missing_facts"),
+            )
+        return "\n".join(
+            (
+                "**Calcul RAS deterministe**",
+                "",
+                f"- Statut : {status}",
+                f"- Regle : {output.get('rule_id') or 'non renseignee'} "
+                f"({output.get('rule_version') or 'version inconnue'})",
+                f"- Assiette : {_ras_amount(output.get('base_amount'), output)}",
+                f"- Taux : {output.get('rate_percent') or 'non renseigne'} %",
+                f"- RAS theorique : "
+                f"{_ras_amount(output.get('expected_amount'), output)}",
+                "",
+                "Resultat provisoire fonde sur les faits attestes et les "
+                "referentiels versions.",
+            )
+        )
+    if result.tool_name == "resolve_applicable_ras_rule":
+        status = str(output.get("status") or "indisponible")
+        if status != "resolved_provisional":
+            return _incomplete_ras_answer(
+                "Regle RAS non resolue",
+                status,
+                output.get("reason"),
+                output.get("missing_facts"),
+            )
+        return "\n".join(
+            (
+                "**Regle RAS resolue provisoirement**",
+                "",
+                f"- Regle : {output.get('rule_id') or 'non renseignee'}",
+                f"- Version : {output.get('rule_version') or 'non renseignee'}",
+                f"- Taux : {output.get('rate_percent') or 'non renseigne'} %",
+                "",
+                "La resolution reste soumise au niveau d'assurance des sources.",
+            )
+        )
+    if result.tool_name == "assess_ras_accounting":
+        return "\n".join(
+            (
+                "**Rapprochement comptable RAS**",
+                "",
+                f"- Statut : {output.get('status') or 'indisponible'}",
+                f"- Attendu : {_ras_amount(output.get('expected_amount'), output)}",
+                f"- Comptabilise : "
+                f"{_ras_amount(output.get('recorded_amount'), output)}",
+                f"- Ecart : {_ras_amount(output.get('difference'), output)}",
+                f"- Informations manquantes : "
+                f"{_ras_list(output.get('missing_facts'))}",
+                f"- Alertes : {_ras_list(output.get('issues'))}",
+            )
+        )
+    if result.tool_name == "run_ras_audit_batch":
+        return "\n".join(
+            (
+                "**Inventaire des candidats RAS**",
+                "",
+                f"- Candidats : {output.get('candidate_count', 0)}",
+                f"- Potentiels : {output.get('potential_count', 0)}",
+                f"- Indeterminables : {output.get('indeterminate_count', 0)}",
+                f"- Perimetre technique complet : "
+                f"{'oui' if output.get('source_scope_complete') is True else 'non'}",
+                f"- Blocages : {_ras_list(output.get('source_scope_blockers'))}",
+                "",
+                "Cet inventaire ne constitue pas une conclusion declarative.",
+            )
+        )
+    return "\n".join(
+        (
+            "**Recherche de contrepartie RAS**",
+            "",
+            f"- Pieces candidates : {output.get('candidate_piece_count', 0)}",
+            f"- Perimetre technique complet : "
+            f"{'oui' if output.get('source_scope_complete') is True else 'non'}",
+            f"- Blocages : {_ras_list(output.get('source_scope_blockers'))}",
+        )
+    )
+
+
+def _incomplete_ras_answer(
+    title: str,
+    status: str,
+    reason: object,
+    missing_facts: object,
+) -> str:
+    return "\n".join(
+        (
+            f"**{title}**",
+            "",
+            f"- Statut : {status}",
+            f"- Motif : {reason or 'information insuffisante'}",
+            f"- Informations manquantes : {_ras_list(missing_facts)}",
+            "",
+            "Aucun montant ni taux n'a ete deduit par le LLM.",
+        )
+    )
+
+
+def _ras_amount(value: object, output: dict[str, object]) -> str:
+    if value is None:
+        return "non calculable"
+    currency = output.get("currency")
+    if isinstance(currency, str) and currency:
+        return f"{value} {currency}"
+    return str(value)
+
+
+def _ras_list(value: object) -> str:
+    if not isinstance(value, list | tuple) or not value:
+        return "aucun"
+    return ", ".join(str(item) for item in value)
+
+
 def _final_answer_from_model_or_tools(
     final_response: ModelResponse,
     tool_results: tuple[ToolExecutionResult, ...],
     answer_policy: AgentAnswerPolicy,
 ) -> str:
+    secure_answer = _secure_deterministic_answer(tool_results)
+    if secure_answer is not None:
+        return secure_answer
     balance_answer = _balance_reconciliation_answer(tool_results)
     if balance_answer is not None:
         return balance_answer
@@ -669,6 +892,59 @@ def _final_answer_from_model_or_tools(
     if not final_response.text.strip():
         return _deterministic_tool_results_answer(tool_results)
     return answer_policy.apply(final_response.text).answer
+
+
+def _tax_rag_answer(
+    tool_results: tuple[ToolExecutionResult, ...],
+) -> str | None:
+    result = next(
+        (
+            item
+            for item in reversed(tool_results)
+            if item.ok and item.tool_name == "query_tax_rag"
+        ),
+        None,
+    )
+    if result is None:
+        return None
+    citations = result.output.get("citations")
+    if not isinstance(citations, list):
+        return None
+    if not citations:
+        return (
+            "Aucun passage suffisamment pertinent n'a été retrouvé dans les "
+            "sources fiscales validées. Aucune conclusion juridique ne peut être "
+            "tirée de cette recherche."
+        )
+    lines = [
+        "**Sources fiscales retrouvées**",
+        "",
+        "Ces passages sont documentaires et ne constituent pas, à eux seuls, "
+        "une décision fiscale ni un calcul de RAS.",
+    ]
+    for index, raw_citation in enumerate(citations, start=1):
+        if not isinstance(raw_citation, dict):
+            continue
+        passage = " ".join(str(raw_citation.get("passage") or "").split())[:500]
+        title = str(raw_citation.get("title") or "Source sans titre")
+        article = str(raw_citation.get("article_or_section") or "Section non précisée")
+        version = str(raw_citation.get("version") or "Version non précisée")
+        source_url = str(raw_citation.get("source_url") or "URL indisponible")
+        source_hash = str(raw_citation.get("source_sha256") or "")
+        score = raw_citation.get("score")
+        applicability = str(raw_citation.get("applicability_status") or "non précisée")
+        lines.extend(
+            (
+                "",
+                f"{index}. **{title} — {article}**",
+                f"   Version : {version}",
+                f"   Applicabilité : {applicability}",
+                f"   Passage : {passage}",
+                f"   Source : {source_url}",
+                f"   Empreinte SHA-256 : `{source_hash}` · Score : {score}",
+            )
+        )
+    return "\n".join(lines)
 
 
 def _aggregation_reconciliation_answer(
@@ -686,9 +962,7 @@ def _aggregation_reconciliation_answer(
     filters = result.output.get("filters")
     filter_text = "Aucun"
     if isinstance(filters, dict) and filters:
-        filter_text = ", ".join(
-            f"{key} = {value}" for key, value in filters.items()
-        )
+        filter_text = ", ".join(f"{key} = {value}" for key, value in filters.items())
     lines = [
         "**Rapprochement des agrégations**",
         "",
@@ -748,13 +1022,9 @@ def _balance_reconciliation_answer(
     filters = result.output.get("filters")
     filter_text = "Aucun"
     if isinstance(filters, dict) and filters:
-        filter_text = ", ".join(
-            f"{key} = {value}" for key, value in filters.items()
-        )
+        filter_text = ", ".join(f"{key} = {value}" for key, value in filters.items())
     by_currency = reconciliation.get("by_currency")
-    currency_names = (
-        tuple(by_currency) if isinstance(by_currency, dict) else ()
-    )
+    currency_names = tuple(by_currency) if isinstance(by_currency, dict) else ()
     display_currency = currency_names[0] if len(currency_names) == 1 else None
     lines = [
         "**Rapprochement du solde**",
@@ -767,6 +1037,28 @@ def _balance_reconciliation_answer(
         "- Écritures exclues : "
         f"{_integer_value(reconciliation, 'excluded_entry_count')}",
     ]
+    entry_count = _integer_value(reconciliation, "entry_count")
+    used_entry_count = _integer_value(reconciliation, "used_entry_count")
+    if entry_count == 0:
+        lines.extend(
+            (
+                "",
+                "Aucune écriture ne correspond aux filtres. Aucun solde "
+                "comptable ne peut être calculé ; ce résultat n'est pas un "
+                "solde nul.",
+            )
+        )
+        return "\n".join(lines)
+    if used_entry_count == 0:
+        lines.extend(
+            (
+                "",
+                "Des écritures correspondent aux filtres, mais aucune n'est "
+                "interprétable pour le calcul débit/crédit. Aucun solde "
+                "calculable n'est présenté.",
+            )
+        )
+        return "\n".join(lines)
     if len(currency_names) <= 1:
         lines.extend(
             (
@@ -828,10 +1120,14 @@ def _balance_reconciliation_answer(
                 f"| {_amount_value(raw_key, 'raw_amount_sum')} |",
             )
     reasons = reconciliation.get("excluded_reasons")
-    if isinstance(reasons, dict) and _integer_value(
-        reconciliation,
-        "excluded_entry_count",
-    ) > 0:
+    if (
+        isinstance(reasons, dict)
+        and _integer_value(
+            reconciliation,
+            "excluded_entry_count",
+        )
+        > 0
+    ):
         lines.extend(
             (
                 "",
@@ -887,7 +1183,10 @@ def _initial_model_request(
             role="system",
             content=(
                 "Tu es un agent d'analyse Excel. Utilise seulement les tools "
-                "autorises. Ne prends aucune decision fiscale. Reponds en "
+                "autorises. Ne prends aucune decision fiscale. "
+                "Le RAG fournit seulement des passages a citer; il ne choisit "
+                "jamais une regle structuree. Une resolution ou un calcul fiscal "
+                "doit venir du tool deterministe correspondant. Reponds en "
                 "Markdown clair avec des paragraphes courts. Pour une reponse "
                 "simple, n'ajoute pas de titre comme Introduction. Evite les "
                 "formulations a la premiere personne."
@@ -897,11 +1196,23 @@ def _initial_model_request(
     ]
     if request.file_path is not None:
         messages.append(
-            ModelMessage(role="system", content=f"Fichier cible: {request.file_path}"),
+            ModelMessage(
+                role="system",
+                content=(
+                    "Un fichier actif est attache cote serveur. Son chemin et "
+                    "son identifiant ne sont pas divulgues au modele."
+                ),
+            ),
         )
     if request.sheet_name is not None:
         messages.append(
-            ModelMessage(role="system", content=f"Feuille cible: {request.sheet_name}"),
+            ModelMessage(
+                role="system",
+                content=(
+                    "La feuille active est selectionnee cote serveur et sera "
+                    "injectee dans les appels de tools autorises."
+                ),
+            ),
         )
     return ModelRequest(
         messages=tuple(messages),
@@ -918,23 +1229,94 @@ def _with_request_context(
     request: AgentRunRequest,
 ) -> ToolCall:
     arguments = dict(tool_call.arguments)
-    if request.file_path is not None:
+    tools_without_file_context = {
+        "query_tax_rag",
+        "resolve_applicable_ras_rule",
+        "calculate_theoretical_ras",
+        "generate_ras_audit_report",
+    }
+    if (
+        request.file_path is not None
+        and tool_call.name not in tools_without_file_context
+    ):
         arguments["file_path"] = str(request.file_path)
-    if request.sheet_name is not None and tool_call.name != "list_sheets":
+    if (
+        request.sheet_name is not None
+        and tool_call.name != "list_sheets"
+        and tool_call.name not in tools_without_file_context
+    ):
         arguments["sheet_name"] = request.sheet_name
     return ToolCall(name=tool_call.name, arguments=arguments)
+
+
+def _single_candidate_ras_followup(
+    tool_results: tuple[ToolExecutionResult, ...],
+    request: AgentRunRequest,
+) -> ToolCall | None:
+    if "assess_ras_accounting" not in request.allowed_tools:
+        return None
+    batch = next(
+        (
+            result
+            for result in reversed(tool_results)
+            if result.tool_name == "run_ras_audit_batch" and result.ok
+        ),
+        None,
+    )
+    if batch is None:
+        return None
+    audit_id = batch.output.get("audit_id")
+    candidate_ids = batch.output.get("review_candidate_ids")
+    remaining = batch.output.get("remaining_candidate_count")
+    if (
+        not isinstance(audit_id, str)
+        or not isinstance(candidate_ids, list)
+        or len(candidate_ids) != 1
+        or not isinstance(candidate_ids[0], str)
+        or remaining != 0
+    ):
+        return None
+    return ToolCall(
+        name="assess_ras_accounting",
+        arguments={
+            "base_audit_id": audit_id,
+            "candidate_id": candidate_ids[0],
+        },
+    )
 
 
 def _final_model_request(
     request: AgentRunRequest,
     tool_results: tuple[ToolExecutionResult, ...],
 ) -> ModelRequest:
+    sensitive_tool_names = {
+        "query_tax_rag",
+        "normalize_gl",
+        "assess_gl_readiness",
+        "reconstruct_accounting_entry",
+        "find_ras_counterpart",
+        "detect_ras_candidates",
+        "classify_transaction_semantics",
+        "resolve_applicable_ras_rule",
+        "calculate_theoretical_ras",
+        "run_ras_audit_batch",
+        "assess_ras_accounting",
+        "generate_ras_audit_report",
+    }
+    user_context = (
+        "Explique uniquement le resultat structure du controle fiscal demande."
+        if any(result.tool_name in sensitive_tool_names for result in tool_results)
+        else request.user_message
+    )
     return ModelRequest(
         messages=(
             ModelMessage(
                 role="system",
                 content=(
                     "Redige une reponse courte a partir des resultats de tools. "
+                    "Pour query_tax_rag, cite article, version et URL et presente "
+                    "le resultat comme information documentaire, jamais comme "
+                    "calcul ou decision fiscale. "
                     "Utilise du Markdown lisible: paragraphes courts, listes "
                     "a puces si utile, tableaux simples seulement si cela clarifie. "
                     "Pour une reponse simple, n'ajoute pas de titre comme "
@@ -942,7 +1324,7 @@ def _final_model_request(
                     "Ne revele pas de donnees sensibles."
                 ),
             ),
-            ModelMessage(role="user", content=request.user_message),
+            ModelMessage(role="user", content=user_context),
             ModelMessage(
                 role="user",
                 content=(
@@ -1001,6 +1383,28 @@ def _compact_tool_output(tool_result: ToolExecutionResult) -> dict[str, object]:
         "returned_columns",
         "message",
         "entries",
+        "citations",
+        "as_of_date",
+        "indexed_source_count",
+        "audit_id",
+        "candidate_count",
+        "potential_count",
+        "indeterminate_count",
+        "remaining_candidate_count",
+        "status_counts",
+        "status",
+        "legal_resolution_status",
+        "calculation_status",
+        "rule_id",
+        "rule_version",
+        "expected_amount",
+        "recorded_amount",
+        "difference",
+        "currency",
+        "missing_facts",
+        "basis_is_complete",
+        "legal_sources",
+        "decision_status",
     ):
         if key in output:
             compact_output[key] = output[key]

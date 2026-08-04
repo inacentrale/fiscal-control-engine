@@ -1,0 +1,2 @@
+scenario_id,description,coverage_tags,expected_candidate_signal,expected_counterpart,legal_rule_id
+SYN-ORPHAN,Scenario sans ligne GL,candidate,true,absent,

@@ -1,6 +1,14 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
@@ -143,6 +151,93 @@ class AgentToolResultModel(Base):
     output: Mapped[dict[str, object]] = mapped_column(JsonType, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+
+class RasAuditRunModel(Base):
+    __tablename__ = "ras_audit_runs"
+
+    audit_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    parent_audit_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("ras_audit_runs.audit_id"),
+        nullable=True,
+        index=True,
+    )
+    agent_run_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("agent_runs.run_id"),
+        nullable=True,
+        index=True,
+    )
+    session_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("agent_sessions.session_id"),
+        nullable=True,
+        index=True,
+    )
+    file_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("agent_files.file_id"),
+        nullable=True,
+        index=True,
+    )
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    reference_versions: Mapped[list[str]] = mapped_column(JsonType, nullable=False)
+    fact_context: Mapped[dict[str, object]] = mapped_column(JsonType, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+
+class RasAuditCaseModel(Base):
+    __tablename__ = "ras_audit_cases"
+    __table_args__ = (
+        UniqueConstraint("audit_id", "candidate_id", name="uq_ras_audit_candidate"),
+    )
+
+    case_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    audit_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("ras_audit_runs.audit_id"),
+        nullable=False,
+        index=True,
+    )
+    candidate_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    certainty: Mapped[str] = mapped_column(String(40), nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(JsonType, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+
+class RasAuditEventModel(Base):
+    __tablename__ = "ras_audit_events"
+    __table_args__ = (
+        UniqueConstraint("audit_id", "sequence", name="uq_ras_audit_event_sequence"),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    audit_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("ras_audit_runs.audit_id"),
+        nullable=False,
+        index=True,
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    metadata_payload: Mapped[dict[str, object]] = mapped_column(
+        "metadata",
+        JsonType,
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

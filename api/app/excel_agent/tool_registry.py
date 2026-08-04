@@ -41,6 +41,7 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                     "type": "object",
                     "properties": {
                         "sheet_names": {"type": "array", "items": {"type": "string"}},
+                        "sheets": {"type": "array"},
                     },
                 },
                 safeguards=("allowed_file_only", "metadata_only"),
@@ -51,6 +52,7 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                 input_schema={
                     "type": "object",
                     "required": ["file_path", "sheet_name"],
+                    "additionalProperties": False,
                     "properties": {
                         "file_path": {"type": "string"},
                         "sheet_name": {"type": "string"},
@@ -341,6 +343,542 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                     "metadata_only",
                     "review_only",
                     "no_tax_decision",
+                    "never_return_cell_values",
+                ),
+            ),
+            AgentToolDefinition(
+                name="normalize_gl",
+                description=(
+                    "Normalise un Grand Livre selon un mapping explicite et "
+                    "retourne uniquement provenance, compteurs, anomalies et "
+                    "readiness, sans exposer les ecritures au modele."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["file_path", "sheet_name"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "sheet_name": {"type": "string"},
+                        "column_mapping": {"type": "object"},
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "sheet_name": {"type": "string"},
+                        "content_sha256": {"type": "string"},
+                        "row_count": {"type": "integer"},
+                        "normalized_count": {"type": "integer"},
+                        "rejected_count": {"type": "integer"},
+                        "issue_counts": {"type": "object"},
+                        "mapped_fields": {"type": "object"},
+                        "readiness": {"type": "array"},
+                    },
+                },
+                safeguards=(
+                    "allowed_file_only",
+                    "explicit_column_mapping",
+                    "summary_only",
+                    "never_return_cell_values",
+                ),
+            ),
+            AgentToolDefinition(
+                name="assess_gl_readiness",
+                description=(
+                    "Evalue les capacites RAS disponibles a partir du schema et "
+                    "de la qualite du Grand Livre, sans exposer ses cellules."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["file_path", "sheet_name"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "sheet_name": {"type": "string"},
+                        "column_mapping": {"type": "object"},
+                        "source_scope_complete": {"type": "boolean"},
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "sheet_name": {"type": "string"},
+                        "row_count": {"type": "integer"},
+                        "issue_counts": {"type": "object"},
+                        "mapped_fields": {"type": "object"},
+                        "readiness": {"type": "array"},
+                    },
+                },
+                safeguards=(
+                    "allowed_file_only",
+                    "summary_only",
+                    "no_firm_finding",
+                    "never_return_cell_values",
+                ),
+            ),
+            AgentToolDefinition(
+                name="reconstruct_accounting_entry",
+                description=(
+                    "Reconstruit les pieces par societe, exercice, journal et "
+                    "numero de piece, puis controle debit et credit par devise."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["file_path", "sheet_name"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "sheet_name": {"type": "string"},
+                        "column_mapping": {"type": "object"},
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "sheet_name": {"type": "string"},
+                        "row_count": {"type": "integer"},
+                        "entry_count": {"type": "integer"},
+                        "balanced_count": {"type": "integer"},
+                        "unbalanced_count": {"type": "integer"},
+                        "ungrouped_line_count": {"type": "integer"},
+                        "issue_counts": {"type": "object"},
+                        "currencies": {"type": "array"},
+                    },
+                },
+                safeguards=(
+                    "allowed_file_only",
+                    "explicit_accounting_key",
+                    "no_amount_based_grouping",
+                    "summary_only",
+                    "never_return_cell_values",
+                ),
+            ),
+            AgentToolDefinition(
+                name="find_ras_counterpart",
+                description=(
+                    "Recherche les lignes de RAS dans la piece candidate puis "
+                    "les regularisations potentielles, sans confirmer un lien "
+                    "documentaire absent."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["file_path", "sheet_name"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "sheet_name": {"type": "string"},
+                        "column_mapping": {"type": "object"},
+                        "related_window_days": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 366,
+                        },
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "sheet_name": {"type": "string"},
+                        "candidate_piece_count": {"type": "integer"},
+                        "status_counts": {"type": "object"},
+                        "confirmed_amounts_by_currency": {"type": "object"},
+                        "potential_related_amounts_by_currency": {"type": "object"},
+                        "potential_adjustments_by_currency": {"type": "object"},
+                        "missing_fact_counts": {"type": "object"},
+                        "issue_counts": {"type": "object"},
+                        "source_scope_complete": {"type": "boolean"},
+                        "source_scope_blockers": {"type": "array"},
+                        "source_scope_policy_version": {"type": "string"},
+                    },
+                },
+                safeguards=(
+                    "allowed_file_only",
+                    "configured_account_mapping_only",
+                    "same_entry_first",
+                    "scope_completeness_never_inferred",
+                    "potential_related_not_confirmed",
+                    "summary_only",
+                    "never_return_cell_values",
+                ),
+            ),
+            AgentToolDefinition(
+                name="detect_ras_candidates",
+                description=(
+                    "Repere au niveau de la piece les depenses potentiellement "
+                    "concernees par la RAS en combinant le mapping comptable "
+                    "de l'organisation et un referentiel de signaux textuels. "
+                    "Produit une liste de revue, jamais une decision fiscale."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["file_path", "sheet_name"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "sheet_name": {"type": "string"},
+                        "column_mapping": {"type": "object"},
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "sheet_name": {"type": "string"},
+                        "row_count": {"type": "integer"},
+                        "evaluated_piece_count": {"type": "integer"},
+                        "candidate_piece_count": {"type": "integer"},
+                        "excluded_piece_count": {"type": "integer"},
+                        "status_counts": {"type": "object"},
+                        "signal_counts": {"type": "object"},
+                        "operation_hint_counts": {"type": "object"},
+                        "candidate_amounts_by_currency": {"type": "object"},
+                        "missing_fact_counts": {"type": "object"},
+                        "issue_counts": {"type": "object"},
+                        "decision_status": {"type": "string"},
+                        "semantic_model": {"type": ["object", "null"]},
+                    },
+                },
+                safeguards=(
+                    "allowed_file_only",
+                    "configured_account_mapping_only",
+                    "versioned_text_signals",
+                    "review_only",
+                    "no_tax_decision",
+                    "piece_level_deduplication",
+                    "summary_only",
+                    "never_return_cell_values",
+                ),
+            ),
+            AgentToolDefinition(
+                name="classify_transaction_semantics",
+                description=(
+                    "Rapproche semantiquement les libelles d'une taxonomie RAS "
+                    "avec un modele local configure. Retourne seulement des "
+                    "suggestions agregees de revue, leurs scores et la version "
+                    "du modele; aucune decision fiscale."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["file_path", "sheet_name"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "sheet_name": {"type": "string"},
+                        "column_mapping": {"type": "object"},
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "sheet_name": {"type": "string"},
+                        "row_count": {"type": "integer"},
+                        "classified_piece_count": {"type": "integer"},
+                        "status_counts": {"type": "object"},
+                        "signal_counts": {"type": "object"},
+                        "missing_fact_counts": {"type": "object"},
+                        "score_summary": {"type": "object"},
+                        "provider_name": {"type": "string"},
+                        "model_name": {"type": "string"},
+                        "policy_version": {"type": "string"},
+                        "calibration_status": {"type": "string"},
+                        "decision_status": {"type": "string"},
+                    },
+                },
+                safeguards=(
+                    "allowed_file_only",
+                    "semantic_model_must_be_configured",
+                    "hash_embeddings_forbidden",
+                    "review_only",
+                    "no_tax_decision",
+                    "summary_only",
+                    "never_return_cell_values",
+                ),
+            ),
+            AgentToolDefinition(
+                name="resolve_applicable_ras_rule",
+                description=(
+                    "Selectionne une regle RAS datee a partir de faits explicites "
+                    "et traces. Retourne les faits manquants ou les lacunes de "
+                    "source au lieu de deviner une residence, un IFU, une "
+                    "exemption ou une convention."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["transaction_date"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "transaction_date": {"type": "string"},
+                        "jurisdiction": {"type": "string"},
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "status": {"type": "string"},
+                        "rule_id": {"type": ["string", "null"]},
+                        "rule_version": {"type": ["string", "null"]},
+                        "calculation_method": {"type": ["string", "null"]},
+                        "rate_percent": {"type": ["string", "null"]},
+                        "missing_facts": {"type": "array"},
+                        "alternative_rule_ids": {"type": "array"},
+                        "sources": {"type": "array"},
+                        "source_assurance": {"type": ["string", "null"]},
+                        "fact_sources": {"type": "array"},
+                        "fact_attestation": {"type": "object"},
+                        "decision_status": {"type": "string"},
+                    },
+                },
+                safeguards=(
+                    "dated_rules_only",
+                    "source_hash_verified",
+                    "scope_and_rate_evidence_separated",
+                    "tax_event_rule_versioned_and_sourced",
+                    "tax_event_date_attested",
+                    "missing_facts_never_guessed",
+                    "blocked_rule_never_activated",
+                    "provisional_only",
+                    "server_fact_attestation_required",
+                ),
+            ),
+            AgentToolDefinition(
+                name="calculate_theoretical_ras",
+                description=(
+                    "Resout la regle datee puis calcule la RAS avec Decimal et "
+                    "des parametres juridiques versionnes. Refuse tout calcul "
+                    "si un fait, une source, une devise ou une regle manque."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["transaction_date"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "transaction_date": {"type": "string"},
+                        "jurisdiction": {"type": "string"},
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "legal_resolution_status": {"type": "string"},
+                        "calculation_status": {"type": "string"},
+                        "rule_id": {"type": ["string", "null"]},
+                        "rule_version": {"type": ["string", "null"]},
+                        "base_fact_name": {"type": ["string", "null"]},
+                        "base_amount": {"type": ["string", "null"]},
+                        "expected_amount": {"type": ["string", "null"]},
+                        "currency": {"type": ["string", "null"]},
+                        "calculation_method": {"type": ["string", "null"]},
+                        "rate_percent": {"type": ["string", "null"]},
+                        "steps": {"type": "array"},
+                        "parameter_versions": {"type": "array"},
+                        "legal_sources": {"type": "array"},
+                        "missing_facts": {"type": "array"},
+                        "rounding_policy": {"type": "string"},
+                        "reason": {"type": ["string", "null"]},
+                        "decision_status": {"type": "string"},
+                        "fact_attestation": {"type": "object"},
+                    },
+                },
+                safeguards=(
+                    "decimal_only",
+                    "dated_rules_only",
+                    "source_hash_verified",
+                    "tax_event_rule_versioned_and_sourced",
+                    "tax_event_date_attested",
+                    "no_currency_conversion",
+                    "no_implicit_rounding",
+                    "missing_facts_never_guessed",
+                    "server_fact_attestation_required",
+                ),
+            ),
+            AgentToolDefinition(
+                name="run_ras_audit_batch",
+                description=(
+                    "Detecte et persiste tous les candidats RAS d'un GL dans "
+                    "un audit unique. Sans faits juridiques par candidat, les "
+                    "cas restent potentiels ou indetermines."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["file_path", "sheet_name"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "sheet_name": {"type": "string"},
+                        "column_mapping": {"type": "object"},
+                        "related_window_days": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 366,
+                        },
+                        "max_candidates": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 20_000,
+                        },
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "audit_id": {"type": "string"},
+                        "candidate_count": {"type": "integer"},
+                        "potential_count": {"type": "integer"},
+                        "indeterminate_count": {"type": "integer"},
+                        "status_counts": {"type": "object"},
+                        "review_candidate_ids": {"type": "array"},
+                        "remaining_candidate_count": {"type": "integer"},
+                        "source_scope_complete": {"type": "boolean"},
+                        "source_scope_blockers": {"type": "array"},
+                        "decision_status": {"type": "string"},
+                    },
+                },
+                safeguards=(
+                    "gl_only",
+                    "persisted_candidates_only",
+                    "no_global_user_facts_applied",
+                    "scope_completeness_never_inferred",
+                    "no_tax_decision_without_candidate_facts",
+                    "candidate_limit_fails_closed",
+                    "server_fact_attestation_required",
+                    "never_return_cell_values",
+                ),
+            ),
+            AgentToolDefinition(
+                name="query_tax_rag",
+                description=(
+                    "Recherche des passages fiscaux valides et retourne leurs "
+                    "citations. Ce tool informe; il ne decide ni taux ni conformite."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["query"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "query": {"type": "string"},
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 5},
+                        "as_of_date": {"type": "string"},
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "as_of_date": {"type": ["string", "null"]},
+                        "citations": {"type": "array"},
+                        "indexed_source_count": {"type": "integer"},
+                        "retrieval_mode": {"type": "string"},
+                        "retrieval_policy_version": {"type": "string"},
+                        "decision_status": {"type": "string"},
+                    },
+                },
+                safeguards=(
+                    "validated_sources_only",
+                    "citation_required",
+                    "retrieval_only",
+                    "no_tax_decision",
+                    "max_five_passages",
+                ),
+            ),
+            AgentToolDefinition(
+                name="generate_ras_audit_report",
+                description=(
+                    "Genere la synthese d'un audit RAS deja persiste. "
+                    "N'accepte jamais de cas ou de montants fournis par le LLM."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["audit_id"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "audit_id": {"type": "string"},
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "report_id": {"type": "string"},
+                        "source_sha256": {"type": "string"},
+                        "generated_at": {"type": "string"},
+                        "case_count": {"type": "integer"},
+                        "status_counts": {"type": "object"},
+                        "certainty_counts": {"type": "object"},
+                        "amount_summaries": {"type": "array"},
+                        "details": {"type": "array"},
+                        "reference_versions": {"type": "array"},
+                        "decision_status": {"type": "string"},
+                    },
+                },
+                safeguards=(
+                    "persisted_cases_only",
+                    "active_session_and_file_only",
+                    "source_hash_required",
+                    "reference_versions_required",
+                    "no_cross_currency_total",
+                    "never_accept_llm_case_payload",
+                ),
+            ),
+            AgentToolDefinition(
+                name="assess_ras_accounting",
+                description=(
+                    "Pour une piece explicitement selectionnee, enchaine "
+                    "resolution juridique, calcul theorique et rapprochement "
+                    "de la RAS comptabilisee. La date fiscale vient du fait "
+                    "generateur atteste; la devise vient du GL."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["file_path", "sheet_name"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "sheet_name": {"type": "string"},
+                        "column_mapping": {"type": "object"},
+                        "accounting_entry": {"type": "object"},
+                        "candidate_id": {"type": "string"},
+                        "base_audit_id": {"type": "string"},
+                        "related_window_days": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 366,
+                        },
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "sheet_name": {"type": "string"},
+                        "row_count": {"type": "integer"},
+                        "status": {"type": "string"},
+                        "legal_resolution_status": {"type": "string"},
+                        "calculation_status": {"type": "string"},
+                        "rule_id": {"type": ["string", "null"]},
+                        "rule_version": {"type": ["string", "null"]},
+                        "expected_amount": {"type": ["string", "null"]},
+                        "recorded_amount": {"type": ["string", "null"]},
+                        "difference": {"type": ["string", "null"]},
+                        "currency": {"type": ["string", "null"]},
+                        "tolerance": {"type": ["string", "null"]},
+                        "missing_facts": {"type": "array"},
+                        "issues": {"type": "array"},
+                        "basis_is_complete": {"type": "boolean"},
+                        "legal_sources": {"type": "array"},
+                        "decision_status": {"type": "string"},
+                        "audit_id": {"type": "string"},
+                        "fact_attestation": {"type": "object"},
+                    },
+                },
+                safeguards=(
+                    "explicit_accounting_entry_selector",
+                    "tax_rule_date_derived_from_attested_event",
+                    "currency_derived_from_gl",
+                    "same_entry_first",
+                    "scope_completeness_never_inferred",
+                    "potential_adjustment_not_applied",
+                    "no_currency_conversion",
+                    "provisional_only",
+                    "server_fact_attestation_required",
+                    "active_session_and_file_only",
                     "never_return_cell_values",
                 ),
             ),

@@ -89,7 +89,18 @@ Checklist operationnelle du chantier front. Les cases seront cochees au fur et a
 
 - [ ] Preparer l'interface de generation/consultation de rapport.
 
-## Gestion des Declarations (nouvelle page)
+## Front Audit RAS — differe jusqu'au gate backend
+
+- [x] Decider de prioriser le backend d'audit RAS fonde sur le GL.
+- [ ] Ne pas adapter le front avant validation des contrats, du jeu d'or, des tools et des gates de robustesse backend dans `api/todo.md`.
+- [ ] Apres le gate backend, remplacer le parcours multi-declarations par le parcours GL: candidats, pieces, contreparties RAS, ecarts et preuves.
+- [ ] Ajouter une vue de detail par candidat avec calcul deterministe, devise, informations manquantes et citations juridiques.
+- [ ] Ajouter le chat fiscal source via `query_tax_rag` et les tools GL structures.
+- [ ] Ajouter filtres, export du rapport et etats certain/probable/indeterminable sans masquer les limites.
+
+## Ancienne Gestion des Declarations — implementee mais gelee
+
+Ces elements restent presents pour conserver l'existant. Ils ne sont plus prioritaires et ne doivent pas guider la nouvelle architecture.
 
 - [x] Ajouter une sidebar de navigation partagee (`components/layout/sidebar/AppSidebar.tsx`), branchee dans `DashboardShell.tsx`, pour naviguer entre "Analyse du Grand Livre" et "Gestion des declarations".
 - [x] Ajouter la route `/declarations` (`app/declarations/page.tsx`).

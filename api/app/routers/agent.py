@@ -39,6 +39,12 @@ from app.config import Settings, get_settings
 from app.database import Base, create_database_engine, create_session_factory
 from app.llm.domain import ToolCall
 from app.llm.model_provider_factory import create_model_provider
+from app.ras_audit.fact_context import (
+    RasExplicitFactExtractor,
+    RasFactContextAttestor,
+    load_ras_user_fact_patterns,
+)
+from app.ras_audit.persistence import SqlAlchemyRasAuditRepository
 from app.schemas.agent import (
     AgentConversationDetailResponse,
     AgentConversationListResponse,
@@ -68,6 +74,20 @@ DEFAULT_AGENT_TOOLS = (
     "calculate_ledger_metrics",
     "detect_data_quality_issues",
     "detect_tax_candidates",
+    "detect_ras_candidates",
+    "query_tax_rag",
+)
+ATTESTED_LEGAL_AGENT_TOOLS = (
+    "resolve_applicable_ras_rule",
+    "calculate_theoretical_ras",
+)
+MAPPED_RAS_AUDIT_AGENT_TOOLS = (
+    "find_ras_counterpart",
+)
+ATTESTED_PERSISTED_RAS_AGENT_TOOLS = ("generate_ras_audit_report",)
+FULLY_ATTESTED_RAS_AGENT_TOOLS = (
+    "run_ras_audit_batch",
+    "assess_ras_accounting",
 )
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -112,8 +132,31 @@ async def get_agent_orchestrator(settings: SettingsDependency) -> AgentOrchestra
         )
         return AgentOrchestrator(
             model_provider=model_provider,
-            tool_executor=create_excel_tool_executor(settings),
+            tool_executor=create_excel_tool_executor(
+                settings,
+                ras_audit_repository=(
+                    _get_ras_audit_repository(settings.database_url)
+                    if settings.database_url
+                    else None
+                ),
+            ),
             max_answer_characters=settings.agent_max_answer_characters,
+            ras_fact_extractor=(
+                RasExplicitFactExtractor(
+                    load_ras_user_fact_patterns(
+                        Path(settings.ras_user_fact_patterns_path)
+                    )
+                )
+                if settings.ras_fact_context_signing_key is not None
+                else None
+            ),
+            ras_fact_attestor=(
+                RasFactContextAttestor(
+                    settings.ras_fact_context_signing_key.get_secret_value()
+                )
+                if settings.ras_fact_context_signing_key is not None
+                else None
+            ),
         )
     except ValueError as exc:
         raise AgentEndpointError(
@@ -127,6 +170,13 @@ def _get_agent_repository(database_url: str) -> SqlAlchemyAgentRepository:
     engine = create_database_engine(database_url)
     Base.metadata.create_all(engine)
     return SqlAlchemyAgentRepository(session_factory=create_session_factory(engine))
+
+
+@lru_cache
+def _get_ras_audit_repository(database_url: str) -> SqlAlchemyRasAuditRepository:
+    engine = create_database_engine(database_url)
+    Base.metadata.create_all(engine)
+    return SqlAlchemyRasAuditRepository(session_factory=create_session_factory(engine))
 
 
 async def get_agent_repository(
@@ -461,6 +511,7 @@ async def run_agent(
     orchestrator: AgentOrchestratorDependency,
     file_resolver: AgentFileResolverDependency,
     repository: AgentRepositoryDependency,
+    settings: SettingsDependency,
 ) -> AgentRunResponse | JSONResponse:
     try:
         file_path = file_resolver.resolve_file_path(
@@ -472,6 +523,7 @@ async def run_agent(
             _to_agent_run_request(
                 request=request,
                 file_path=file_path,
+                settings=settings,
             ),
         )
         _save_agent_run_if_configured(
@@ -500,6 +552,7 @@ async def stream_agent_run(
     orchestrator: AgentOrchestratorDependency,
     file_resolver: AgentFileResolverDependency,
     repository: AgentRepositoryDependency,
+    settings: SettingsDependency,
 ) -> StreamingResponse | JSONResponse:
     try:
         file_path = file_resolver.resolve_file_path(
@@ -510,6 +563,7 @@ async def stream_agent_run(
         agent_request = _to_agent_run_request(
             request=request,
             file_path=file_path,
+            settings=settings,
         )
     except AgentFileExpiredError:
         return _to_error_response(_file_expired_error())
@@ -545,13 +599,24 @@ def _build_agent_file_store(
 def _to_agent_run_request(
     request: AgentRunHttpRequest,
     file_path: Path | None,
+    settings: Settings,
 ) -> AgentRunRequest:
-    allowed_tools = _effective_allowed_tools(request.allowed_tools)
+    allowed_tools = _effective_allowed_tools(request.allowed_tools, settings)
     return AgentRunRequest(
         user_message=request.message,
         file_path=file_path,
         sheet_name=request.sheet_name,
-        allowed_tools=allowed_tools if file_path is not None else (),
+        allowed_tools=(
+            allowed_tools
+            if file_path is not None
+            else tuple(
+                tool
+                for tool in allowed_tools
+                if tool in {"query_tax_rag", *ATTESTED_LEGAL_AGENT_TOOLS}
+            )
+        ),
+        session_id=request.session_id,
+        file_id=request.file_id,
         direct_tool_call=(
             ToolCall(
                 name=request.requested_tool,
@@ -566,10 +631,47 @@ def _to_agent_run_request(
     )
 
 
-def _effective_allowed_tools(requested_tools: list[str]) -> tuple[str, ...]:
-    if not requested_tools:
-        return DEFAULT_AGENT_TOOLS
-    return tuple(dict.fromkeys((*requested_tools, *DEFAULT_AGENT_TOOLS)))
+def _effective_allowed_tools(
+    requested_tools: list[str],
+    settings: Settings,
+) -> tuple[str, ...]:
+    configured_defaults = list(DEFAULT_AGENT_TOOLS)
+    fact_attestation_enabled = settings.ras_fact_context_signing_key is not None
+    account_mapping_enabled = settings.ras_ledger_account_mapping_path is not None
+    if fact_attestation_enabled:
+        configured_defaults.extend(ATTESTED_LEGAL_AGENT_TOOLS)
+        configured_defaults.extend(ATTESTED_PERSISTED_RAS_AGENT_TOOLS)
+    if account_mapping_enabled:
+        configured_defaults.extend(MAPPED_RAS_AUDIT_AGENT_TOOLS)
+    if fact_attestation_enabled and account_mapping_enabled:
+        configured_defaults.extend(FULLY_ATTESTED_RAS_AGENT_TOOLS)
+    requested = tuple(
+        tool
+        for tool in requested_tools
+        if _ras_tool_is_configured(
+            tool,
+            fact_attestation_enabled=fact_attestation_enabled,
+            account_mapping_enabled=account_mapping_enabled,
+        )
+    )
+    return tuple(dict.fromkeys((*requested, *configured_defaults)))
+
+
+def _ras_tool_is_configured(
+    tool: str,
+    *,
+    fact_attestation_enabled: bool,
+    account_mapping_enabled: bool,
+) -> bool:
+    if tool in ATTESTED_LEGAL_AGENT_TOOLS:
+        return fact_attestation_enabled
+    if tool in ATTESTED_PERSISTED_RAS_AGENT_TOOLS:
+        return fact_attestation_enabled
+    if tool in MAPPED_RAS_AUDIT_AGENT_TOOLS:
+        return account_mapping_enabled
+    if tool in FULLY_ATTESTED_RAS_AGENT_TOOLS:
+        return fact_attestation_enabled and account_mapping_enabled
+    return True
 
 
 def _save_agent_run_if_configured(
@@ -614,8 +716,7 @@ def _to_agent_run_response(result: AgentRunResult) -> AgentRunResponse:
         provider_name=result.provider_name,
         model_name=result.model_name,
         execution_events=[
-            _to_agent_run_event_response(event)
-            for event in result.execution_events
+            _to_agent_run_event_response(event) for event in result.execution_events
         ],
         tool_results=[
             AgentToolResultResponse(
@@ -746,10 +847,13 @@ def _split_answer_for_streaming(answer: str) -> Iterator[str]:
 
 
 def _to_ndjson_line(event_type: str, data: dict[str, object]) -> str:
-    return json.dumps(
-        {"type": event_type, "data": data},
-        ensure_ascii=False,
-    ) + "\n"
+    return (
+        json.dumps(
+            {"type": event_type, "data": data},
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
 
 
 def _to_error_response(

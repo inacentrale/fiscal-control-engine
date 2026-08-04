@@ -207,7 +207,7 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 - [x] Identifier le theme manquant pour chacune des 13 questions `pending_source` (voir `docs/reference/rag-question-expectations.csv` et `docs/rag-corpus-inventory.md`).
 - [x] Ajouter `PROC-001-S6` (exclusion hors perimetre RAS) a `docs/reference/rag-mini-corpus.csv`, sans dependre d'une source fiscale externe; resout RAG-Q015 et RAG-Q016 (retrieval verifie par test).
 - [x] Verifier empiriquement (tests) le retrieval des questions dont la source est desormais validee: RAG-Q011 et RAG-Q017 passent `ready` (top-1 unique et correct); RAG-Q001, Q002, Q004, Q006, Q008, Q012, Q014 restent `pending_source` car le retrieval lexical ne classe pas le bon passage de facon fiable (ex-aequo ou mauvais article en tete) malgre une source validee — 16 questions pretes au total (au lieu de 12).
-- [ ] Racinisation ou embeddings (deja prevus via `sentence-transformers`) pour fiabiliser le retrieval des 7 questions bloquees par la precision lexicale, pas par l'absence de source.
+- [ ] Calibrer le modele multilingue reel pour fiabiliser les 7 questions bloquees par la precision lexicale: le reranking hybride lexical/vectoriel est raccorde au tool, limite aux candidats ayant une ancre lexicale, trace par la politique `tax-rag-hybrid-rerank-v1` et corrige une ambiguite naturelle en test; l'execution reelle attend le rebuild Docker incluant l'extra `embeddings`.
 - [ ] Faire rediger par un expert-comptable ou fiscaliste la doctrine/commentaire manquant pour les 2 questions sans aucun contenu disponible (Q007 honoraires, Q013 loyer/entretien/prestation).
 - [ ] Faire relire par un expert-comptable ou fiscaliste les 3 squelettes fiscaux auto-valides; corriger et re-exporter si une erreur est trouvee.
 
@@ -340,6 +340,47 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 
 ## Challenge et Rapprochement des Tools Agent Excel
 
+### Ordre de challenge GL — priorite actuelle
+
+- [ ] 1. Ambiguites a refuser ou clarifier:
+  - [ ] « Donne-moi le solde du compte 61365 » — compte partiel ou exact ?
+  - [ ] « Montre les ecritures du compte 445 » — prefixe trop large.
+  - [ ] « Quel est le total de 2024 ? » — metrique, compte et devise absents.
+  - [ ] « Analyse les charges » — perimetre et regroupement non precises.
+- [ ] 2. Structure simple du fichier:
+  - [ ] « Quelles feuilles contient ce fichier ? »
+  - [ ] « Quelles colonnes contient la feuille active ? »
+  - [ ] « Le GL permet-il de calculer des soldes fiables ? »
+- [ ] 3. Consultation et filtres:
+  - [ ] « Affiche les ecritures du compte 61365000 en 2024, periode 12. »
+  - [ ] « Affiche la page 2 avec 20 ecritures. »
+  - [ ] « Cherche un compte inexistant. »
+- [ ] 4. Soldes et rapprochements:
+  - [ ] « Calcule le solde du compte 61365000 en 2024, periode 12. »
+  - [ ] « Montre brut, debit, credit, solde, cles utilisees et exclusions par devise. »
+  - [ ] « Explique l'ecart avec la somme brute Excel sans modifier le calcul. »
+- [ ] 5. Agregations:
+  - [ ] « Regroupe le compte 61365000 par periode en 2024. »
+  - [ ] « Regroupe debit, credit et solde par compte et devise. »
+  - [ ] « Donne les dix comptes aux soldes absolus les plus eleves. »
+- [ ] 6. Qualite et cas limites:
+  - [ ] « Liste les lignes structurelles, cles inconnues et montants inutilisables. »
+  - [ ] « Distingue anomalies de fichier et anomalies comptables. »
+  - [ ] « Verifie un GL multi-devises sans additionner les devises. »
+- [ ] 7. Analyse complexe croisee:
+  - [ ] « Analyse les charges 2024 par compte, periode et devise avec exclusions. »
+  - [ ] « Identifie les avoirs et extournes sans les compter deux fois. »
+  - [ ] « Detecte les candidats RAS puis rapproche leurs contreparties dans les pieces. »
+
+### Ordre restant apres le challenge GL
+
+- [ ] 8. Challenger les tools RAS sur questions simples, incompletes, contradictoires puis multi-candidats.
+- [ ] 9. Challenger le RAG juridique sur CGI et loi de finances 2026 avec citations et refus hors source.
+- [ ] 10. Calibrer les embeddings multilingues reels apres rebuild Docker et revue du jeu d'or.
+- [ ] 11. Completer les faits generateurs, echeances et categories juridiques encore non sourcees.
+- [ ] 12. Finaliser l'enchainement multi-candidats sans interpretation numerique du LLM.
+- [ ] 13. Valider volumes, performances, lint, types, tests et non-regression finale.
+
 - [x] Challenger `calculate_ledger_metrics`: filtres compte/exercice/periode, cles debit-credit, montants source negatifs, devise, compte inexistant et invariants de rapprochement (85 tests API passes; challenges runtime reels passes).
 - [x] Challenger partiellement `query_ledger_entries`: filtres compte/exercice, pagination et signe des montants selon les cles; approfondir cles inconnues, multi-devises et pages suivantes.
 - [ ] Challenger `aggregate_ledger`: contrat corrige et valide en runtime (`34211100`: 15 lignes, 9 utilisees, 6 exclues explicites; compte `61365000`/2024 regroupe par periode); terminer le rapprochement Excel multi-devises et valider la regle de classement avant de cocher.
@@ -348,11 +389,168 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 - [ ] Challenger `classify_ledger_schema`: mapping reel 11/11 conforme et ambiguite de deux montants correctement bloquee, mais une meme colonne peut etre affectee a `account` et `customer` sans confirmation; `is_usable=true` meme sans cle de comptabilisation alors que les soldes sont impossibles. Ajouter unicite des sources et readiness par capacite avant validation.
 - [ ] Challenger `analyze_ledger`: dimensions physiques 2506x21 et mapping 11/11 rapproches, mais distinguer 2506 lignes physiques de 2500 ecritures candidates et 6 lignes structurelles; clarifier `is_valid` (colonnes presentes malgre valeurs critiques invalides) et ajouter readiness par capacite heritee du classifieur.
 - [ ] Challenger `profile_sheet`: dimensions, valeurs non vides, manquantes et ratios rapproches exactement sur le fichier reel (2506x21); le type `text` de `Date piece` est conforme aux cellules source stockees en chaines. Avant validation, distinguer les 2500 ecritures des 6 lignes structurelles et ne pas presenter les identifiants (`Compte`, cle, client, fournisseur) comme des nombres metier au risque de perdre les zeros initiaux.
-- [ ] Challenger `get_columns`: ordre reel des 21 colonnes conforme; espaces externes retires, en-tete vide normalise (`column_N`) et accents/caracteres speciaux conserves. Avant validation, signaler les doublons au lieu d'accepter le renommage silencieux Pandas (`Montant.1`) et fermer explicitement le classeur pour eviter son verrouillage sous Windows.
-- [ ] Challenger `list_sheets`: ordre, feuilles multiples/vides et noms accentues ou speciaux conformes sur classeur cible. Avant validation, exposer l'etat visible/masque (une feuille technique masquee est actuellement retournee sans distinction) et fermer explicitement le classeur pour eviter son verrouillage sous Windows.
-- [ ] Corriger la reponse de solde sans correspondance pour distinguer « aucun solde calculable » d'un solde comptable nul.
+- [x] Challenger `get_columns`: ordre reel des 21 colonnes conforme sur le GL cible, espaces externes retires, en-tete vide normalise (`column_N`), accents/caracteres speciaux conserves, doublons normalises rejetes avant le renommage silencieux Pandas et classeur ferme explicitement.
+- [x] Challenger `list_sheets`: ordre, feuilles multiples/vides et noms accentues ou speciaux conformes; exposer `visible`, `hidden` ou `veryHidden` et verifier par renommage que le classeur est libere sous Windows.
+- [x] Corriger la reponse de solde sans correspondance: distinguer aucune ecriture, ecritures toutes ininterpretables et vrai solde comptable nul; ne jamais afficher `0.00` comme solde dans les deux premiers cas.
 
-## Gestion des Declarations Fiscales
+## Audit RAS fonde sur le Grand Livre — Roadmap backend prioritaire
+
+### 0. Recentrage du perimetre
+
+- [x] Retenir le Grand Livre comme seule source obligatoire du premier perimetre.
+- [x] Ne pas exiger de declaration fiscale ni de referentiel fournisseur externe.
+- [x] Nommer une absence `RAS non retrouvee dans le GL`, jamais `omission de declaration`.
+- [x] Conserver le RAG fiscal pour les questions sourcees et la constitution du referentiel.
+- [x] Imposer les calculs et conclusions fiscales aux services deterministes, pas au LLM.
+- [x] Geler les routes et ecrans multi-declarations hors correctifs critiques; les routes `/api/tax-declarations/**` restent compatibles mais sont marquees `deprecated` et `tax-declarations-experimental` dans OpenAPI; un test d'architecture interdit au backend RAS actif de dependre de ces modules.
+
+### 1. Contrats d'audit et jeu d'or
+
+- [x] Definir le contrat canonique d'une ecriture GL RAS: source, societe, exercice, periode, journal, piece, ligne, date, compte, tiers, libelle, cle, montant et devise.
+- [x] Definir les statuts: conforme, montant incoherent, RAS non retrouvee, applicabilite probable, indeterminable et hors perimetre.
+- [x] Definir les preuves et motifs obligatoires pour chaque statut; un statut ferme exige une base complete et les preuves comptable, juridique, calculatoire et de completude attendues.
+- [x] Definir la readiness par capacite et interdire un constat ferme si le GL ou la cartographie est incomplet.
+- [x] Constituer un jeu d'or entierement synthetique couvrant candidats, non-candidats, pieces multi-lignes, extournes, regularisations, devises et cles inconnues; 8 scenarios et 26 lignes, sans resultat juridique invente.
+- [x] Etablir les gates du jeu d'or: rappel candidats 100 %, precision alertes fermes 100 %, explication des indeterminations 100 % et ecart absolu de calcul nul.
+- [x] Valider le noyau et le jeu d'or `app/ras_audit`: 17 tests passes, Ruff et mypy strict passes.
+
+### 2. Matrice juridique exhaustive RAS
+
+- [x] Limiter la matrice active aux articles et categories RAS du Burkina Faso; le loader et les contrats n'acceptent que la juridiction `BF` pour ce referentiel.
+- [ ] Inventorier toutes les categories RAS du CGI applicable et de la seule loi de finances 2026 retenue dans le perimetre actif; conserver les textes anterieurs hors index actif.
+- [ ] Completer pour chaque categorie: beneficiaire, residence, territorialite, operation, fait generateur, assiette, seuil, taux, exemption, echeance et faits obligatoires.
+  - [x] Livrer une premiere matrice de 27 lignes couvrant residents, non-residents, loyers et categories non determinees; separer conditions, assiette, methode, taux, dates, priorite et faits obligatoires.
+  - [ ] Completer fait generateur et echeance apres correction du referentiel contradictoire.
+    - [x] Modeliser dans `bf-ras-tax-event-rules.csv` le paiement resident, la mise en paiement non-resident et le loyer acquis; exiger statut et date attestes et dater la regle sur cet evenement plutot que sur la date comptable de charge.
+- [x] Versionner chaque regle avec dates, article, document, URL, empreintes SHA-256 distinctes des preuves de champ et de taux, ainsi que niveau d'assurance de source.
+- [x] Signaler explicitement toute source manquante, contradiction ou categorie non resolue; 12 lignes restent bloquees plutot que rendues calculables sans preuve de champ suffisante.
+- [x] Soumettre chaque regle au validateur de referentiel avant son activation: colonnes, types, dates, taux, unicite, chevauchements, statut et integrite des deux sources sont controles.
+- [x] Ajouter les tests normal, limite, exception, chevauchement de dates et information manquante pour chaque regle: 49 contrats couvrent les 15 lignes actives a leurs bornes, le retrait individuel de chaque fait obligatoire et l'impossibilite d'activer les 12 lignes bloquees; les chevauchements restent refuses par le loader.
+
+### 3. Ingestion et readiness du Grand Livre
+
+- [x] Implementer le tool `normalize_gl` sur les briques Excel existantes: mapping explicite et unique, empreinte SHA-256, valeurs sources et zeros initiaux conserves en interne, rejets et anomalies explicites, sortie LLM limitee au resume.
+- [x] Implementer le tool `assess_gl_readiness` avec readiness distincte pour detection, resolution juridique, calcul et rapprochement; sortie resumee et aucune alerte fiscale ferme.
+- [x] Rendre configurables les alias de colonnes et la cartographie des comptes de charges et de RAS, sans numero de compte active par defaut.
+  - [x] Ajouter le referentiel versionne `ras-gl-column-aliases.csv` et la resolution automatique stricte des variantes francaises/SAP, avec blocage des correspondances ambigues.
+  - [x] Definir le loader versionne des comptes exacts/prefixes de charges candidates et de RAS a payer, scopes par societe et periode; disponibilite derivee du mapping charge, jamais d'un argument LLM.
+  - [x] Renseigner `RAS_LEDGER_ACCOUNT_MAPPING_PATH` avec le mapping organisationnel versionne: rapprocher exhaustivement les 13 comptes observes dans le GL au plan fourni, activer 4 charges candidates et 3 comptes RAS uniquement sur correspondances exactes, exclure 5 comptes hors perimetre et conserver `51200500` indetermine car son libelle de charge contredit 151 mouvements crediteurs; tracer les empreintes du plan et du GL.
+- [x] Reconstituer les pieces uniquement par societe + exercice + journal + numero de piece; identifiant technique SHA-256 et aucune fusion sur montant, libelle ou tiers.
+- [x] Controler cles de comptabilisation, devise, doublons, lignes structurelles et perimetre temporel; le gate `ras-uploaded-sheet-scope-v4` bloque montants, devises, dates, periodes, exercices ou numeros de ligne incomplets, doublons, contradictions intra-piece, scope societe absent et champs comptables issus de proxies, sans supposer un exercice civil.
+- [x] Tester les grands fichiers, feuilles multiples, schemas ambigus, multi-devises et donnees partielles.
+  - [x] Valider un batch de 1 800 lignes et 600 candidats: persistance integrale, sortie agent bornee a 20 identifiants et 580 cas restants signales; remplacer le plafond implicite de 500 par `RAS_BATCH_MAX_CANDIDATES`, configure a 5 000 par defaut et borne serveur a 20 000.
+  - [x] Verifier au niveau tool l'isolation de la feuille explicitement selectionnee, le refus d'un mapping tiers ambigu, le blocage de completude sur devises contradictoires et les donnees techniques partielles.
+- [x] Valider normalisation, readiness et mappings: 40 tests unitaires/contrats, 6 tests d'integration Excel cibles, Ruff et mypy strict sur les 28 fichiers concernes passes.
+  - [x] Corriger le schema organisationnel reel dans `bf.ras-gl-columns.v2`: distinguer fournisseur et client puis deriver le tiers ligne par ligne, completer les alias des 21 colonnes, normaliser les cles SAP a un chiffre avec zero initial et synthetiser un numero de ligne technique stable; reconstruire les pieces sans societe tout en bloquant tout constat ferme d'absence par `missing_company_scope`.
+  - [x] Challenger sur `GL_anonymise_2500.xlsx`: 2 500 lignes acceptees, 611 pieces candidates, 59 contreparties RAS dans la meme piece et aucune fausse absence emise; le scope societe manque, tandis que `Date piece` et `Type de piece` restent explicitement des proxies de la date comptable et du journal.
+  - [x] Mettre en cache au plus 4 feuilles immuables pendant la seule duree de vie d'un executeur, avec invalidation taille/mtime et detection de modification pendant lecture: sur le GL 2 500 lignes, premiere preparation 11,3 s puis detection 1,6 s et rapprochement 1,1 s sans relecture Excel; aucun cache global de donnees client.
+
+### 4. Detection hybride des candidats RAS
+
+- [x] Implementer `detect_ras_candidates` au niveau piece avec filtres deterministes larges sur comptes, sens de comptabilisation, libelles et signaux disponibles dans le GL; ne pas doubler les charges multi-lignes ni les extournes.
+- [x] Externaliser comptes, mots-cles, exclusions et taxonomie operationnelle dans des referentiels versionnes; les signaux textuels sont explicitement `review_only` et ne constituent pas une regle fiscale.
+- [x] Completer la normalisation linguistique deterministe par une similarite optionnelle via embeddings locaux normalises; refuser le fournisseur hash deterministe comme faux moteur semantique et garder le modele desactive tant qu'il n'est pas calibre.
+- [ ] Implementer completement `classify_transaction_semantics`; le moteur d'embeddings, la politique versionnee, les seuils, marges, traces du modele et sorties agregees sont livres, mais l'eventuelle suggestion LLM expliquee sur les seuls cas ambigus reste a encadrer et tester.
+- [x] Interdire au LLM de fixer `soumisRas`, la categorie finale, un taux ou une anomalie dans le contrat de `detect_ras_candidates`; le tool ne retourne que des signaux de revue agreges.
+- [x] Retourner signaux positifs, exclusions et informations manquantes dans la detection, ainsi que scores agreges, fournisseur, modele, version de politique et statut de calibration dans la classification semantique, sans exposer les libelles.
+- [ ] Calibrer seuils et scores sur le jeu d'or; mesurer faux negatifs et faux positifs par categorie.
+  - [x] Versionner un jeu de calibration semantique non sensible et implementer l'evaluateur de precision/rappel, faux positifs et faux negatifs par categorie; le jeu synthetique valide le protocole sans promouvoir le modele en statut `validated`.
+  - [ ] Executer la calibration avec le modele d'embeddings local cible sur un jeu d'or metier relu, puis versionner les seuils retenus et les metriques obtenues.
+- [x] Valider le premier moteur deterministe de detection: rappel et precision de detection 100 % sur les 8 scenarios synthétiques, 7 tests dedies, integration Excel sans exposition des cellules, routage RAS prioritaire, Ruff et mypy strict passes.
+- [x] Valider le moteur hybride: paraphrase semantique detectee, faible similarite rejetee, marge ambigue conservee, libelle absent explicite, hash refuse et modele desactive refuse; 97 tests RAS/registre/integration passes avant raccordement hybride final.
+
+### 5. Resolution juridique et calcul theorique
+
+- [x] Implementer `resolve_applicable_ras_rule` avec selection deterministe par date, priorite et faits etablis; le tool reste hors liste LLM par defaut jusqu'a signature serveur de la provenance des faits.
+- [x] Retourner faits manquants, ambiguite ou lacune de source lorsqu'un fait juridique obligatoire manque, notamment residence, IFU, nature precise, exemption, etablissement stable ou convention.
+- [x] Permettre a une question utilisateur d'apporter des faits explicites, traces separement du GL.
+  - [x] Definir le contrat de faits avec source `user`, `gl`, `organization` ou `legal_document`; la sortie masque les valeurs et expose seulement nom et provenance.
+  - [x] Extraire uniquement les formulations explicites via un referentiel versionne; exclure tout fait contradictoire.
+  - [x] Signer le contexte HMAC avec empreinte du message, positions, session, fichier, versions et expiration; refuser les `facts` libres du LLM.
+  - [x] Resoudre une regle depuis une formulation utilisateur reelle sans exiger `regime`: cette famille est deduite des faits discriminants; aucun choix n'est fait si ces faits manquent.
+  - [x] Persister avec le resultat du tool l'empreinte du message, les versions, les noms de faits et les references de preuve, sans valeur fiscale, secret ni jeton.
+  - [x] Autoriser automatiquement les tools juridiques au LLM uniquement lorsque la cle d'attestation serveur est configuree; exiger en plus le mapping comptable pour les tools de rapprochement et d'audit batch.
+- [x] Implementer `calculate_theoretical_ras` avec `Decimal`, assiette, seuil, taux et devise explicites; externaliser les parametres progressifs IRF et ne pratiquer aucun arrondi faute de regle sourcee.
+- [x] Refuser tout calcul inter-devise ou toute conversion sans taux et source explicites; conserver la devise source pour le regime non-resident et bloquer les loyers hors XOF.
+- [x] Exposer la trace complete: provenance des faits sans valeurs dans le resolver, regle, formule, base, attendu, devise, article, URL, empreinte et version des parametres dans le calculateur.
+- [x] Valider resolution et calcul: taux plats dates 2024-2026, seuil resident, exemption prouvee, non-resident sans conversion, convention bloquee, IRF progressif externalise, devise incompatible et dossier incomplet; 122 tests RAS/registre/integration passes, Ruff et mypy strict sur 44 fichiers passes.
+
+### 6. Rapprochement de la RAS comptabilisee
+
+- [x] Implementer `reconstruct_accounting_entry` pour regrouper les lignes d'une meme piece et rapprocher debit/credit par devise selon les cles connues.
+- [x] Implementer `find_ras_counterpart` au niveau de la piece avec cartographie versionnee des charges candidates et comptes RAS, sans double comptage des lignes de charge.
+- [x] Rapprocher d'abord dans la meme piece par societe, journal, exercice et devise; utiliser tiers et date uniquement pour proposer une piece liee non confirmee.
+- [x] Rechercher regularisations, extournes et comptabilisations differees dans une fenetre configurable de 0 a 366 jours; conserver separement montants confirmes, potentiels et ajustements.
+- [x] Implementer `assess_ras_accounting` sur une piece explicitement selectionnee et comparer attendu, comptabilise et ecart dans la devise du GL avec tolerance versionnee.
+- [x] N'emettre `ras_non_retrouvee_dans_gl` que si applicabilite et cartographie sont prouvees et si le serveur atteste la couverture technique de toute la feuille chargee: aucune ligne rejetee ou non regroupee, aucune cle inconnue et mapping RAS applicable. Ne jamais assimiler cette couverture a l'exhaustivite declarative ou organisationnelle.
+- [x] Tester pieces regroupees, retenues partielles, multiples taux, avoirs, extournes, paiements partiels et comptes inconnus.
+  - [x] Refuser une evaluation a taux unique lorsque les signaux d'une meme piece indiquent plusieurs categories RAS; exiger une ventilation du candidat.
+  - [x] Tester plusieurs lignes de RAS dans une meme piece et leur somme nette unique; qualifier separement retenue partielle, sur-retenue et inversion nette.
+  - [x] Bloquer le calcul d'un paiement partiel lorsque `payment_amount` et `tax_base_amount` attestes different: aucune allocation prorata n'est inventee; accepter leur egalite et conserver une exemption prouvee a zero.
+  - [x] Ne jamais persister le montant d'une piece seulement potentiellement liee comme une RAS comptabilisee confirmee.
+  - [x] Tester la reconstruction seule: pieces multi-lignes, separation societe/exercice/journal, cle inconnue, doublon de ligne, dates/devises contradictoires et montant source negatif.
+  - [x] Tester la contrepartie: meme piece, absence dans un GL complet, regularisation potentielle, extourne potentielle, incoherence de devise, GL incomplet et zeros initiaux preserves.
+  - [x] Tester l'evaluation comptable: egalite exacte, ecart, RAS non retrouvee dans un scope complet, exemption a zero, piece liee non confirmee, ajustement non applique, devise incompatible et calcul incomplet.
+  - [x] Tester l'attestation serveur du perimetre charge: feuille entierement interpretable acceptee; cle absente ou inconnue bloquant tout constat ferme d'absence.
+  - [x] Exclure un avoir pur comptabilise au credit d'un compte de charge meme si son libelle contient un signal RAS; netter dans la meme piece les mouvements debiteurs et crediteurs par devise; garder un compte inconnu hors candidat sans signal et seulement `text_only` avec signal explicite.
+- [x] Valider la reconstruction: 34 tests `ras_audit`, 14 tests registre/integration cibles, Ruff et mypy strict sur les 30 fichiers concernes passes.
+- [x] Valider `find_ras_counterpart`: 38 tests `ras_audit`, 15 tests registre/integration cibles, Ruff et mypy strict sur les 32 fichiers concernes passes.
+- [x] Valider `assess_ras_accounting` de bout en bout sur classeur synthetique: date et devise derivees du GL, regle 2025 a 5 %, attendu et comptabilise a 5 000 XOF, ecart nul et aucune cellule exposee; 132 tests RAS/registre/integration passes.
+
+### 7. RAG fiscal et agent tool-calling
+
+- [x] Disposer d'un corpus RAG fiscal source, versionne et interrogeable avec citations.
+- [x] Implementer `query_tax_rag` sur les sources Markdown validees avec article, passage borne, version, URL, empreinte, score et applicabilite datee; sortie explicitement non decisionnelle.
+- [x] Limiter le perimetre actif des lois de finances a 2026 dans les retrievers lexical et vectoriel, tout en conservant les millesimes 2024-2025 comme archives non indexees; garder le CGI et les autres sources validees, sans retroactivite.
+- [x] Raccorder optionnellement `query_tax_rag` au retriever vectoriel multilingue par reranking RRF; ne jamais activer le provider hash de test, ne jamais contourner un refus lexical, exposer mode et version de politique, et embarquer l'extra Docker `embeddings`.
+- [x] Separer strictement reponse juridique RAG et execution d'une regle structuree; le rendu des citations est deterministe et remplace toute reformulation LLM non sourcee.
+- [x] Enregistrer tous les tools RAS avec schemas d'entree/sortie stricts et limites de ressources.
+  - [x] Enregistrer `normalize_gl`, `assess_gl_readiness`, `reconstruct_accounting_entry`, `find_ras_counterpart`, `detect_ras_candidates`, `classify_transaction_semantics`, `resolve_applicable_ras_rule`, `calculate_theoretical_ras`, `run_ras_audit_batch`, `assess_ras_accounting`, `generate_ras_audit_report` et `query_tax_rag` avec sorties minimales et protections explicites.
+  - [x] Fermer les schemas des 12 tools avec `additionalProperties=false`; valider a la frontiere chaines, entiers, nombres, booleens, objets, tableaux, enums et bornes; borner RAG a 5 passages, fenetre de rapprochement a 366 jours et batch a 20 000 candidats maximum.
+- [x] Router deterministement les demandes GL simples avant tout appel LLM: feuilles, colonnes, profil, schema, requete filtree, solde, aggregation, qualite, candidats, analyse globale, audit RAS et recherche juridique.
+  - [x] Router une demande de candidats RAS vers `detect_ras_candidates`, avec compatibilite descendante vers l'ancien tool seulement lorsqu'il n'est pas autorise.
+  - [x] Router les demandes explicites de resolution ou de calcul RAS vers les tools juridiques uniquement lorsqu'un fait generateur date valide est present; conserver les formats ISO et `JJ/MM/AAAA`, refuser les dates absentes ou impossibles et ne jamais laisser le LLM inventer la date; valider de bout en bout extraction, attestation, resolution et calcul depuis une question francaise complete.
+- [ ] Autoriser l'agent a enchainer detection, resolution, calcul et rapprochement sans interpreter les nombres.
+  - [x] Activer resolution et calcul uniquement avec attestation HMAC configuree; activer batch et rapprochement uniquement avec mapping comptable configure; exiger les deux pour l'evaluation complete.
+  - [x] Router une demande d'audit RAS vers le batch persiste, retourner des identifiants candidats opaques et enchainer automatiquement l'evaluation lorsque le batch contient exactement un candidat.
+  - [x] Refuser l'application automatique de faits utilisateur globaux lorsque le batch contient plusieurs candidats; chaque cas devra etre enrichi separement.
+  - [x] Verifier qu'un candidat appartient au batch et au hash du GL avant enrichissement; interdire consultation et derivation depuis une autre session ou un autre fichier atteste.
+- [x] Tester les refus: tool absent, argument invalide, source non applicable, timeout et resultat incomplet.
+  - [x] Tester faits inconnus, source modifiee, regle active non resolue, chevauchement, seuil, exemption, convention manquante, categorie bloquee et valeurs non exposees.
+  - [x] Rendre cote serveur les resultats RAS et RAG, y compris le calcul incomplet, sans appel de synthese LLM; afficher statut, motif et faits manquants sans permettre au modele d'inventer taux ou montant.
+
+### 8. Rapport, robustesse et gate backend
+
+- [x] Implementer `generate_ras_audit_report` avec synthese et detail exportable par candidat persiste.
+  - [x] Implementer le generateur pur JSON/CSV avec identifiant reproductible derive du hash source, des resultats et versions de referentiels.
+  - [x] Ajouter les tables, migration et repository pour persister un run d'audit, ses versions, l'empreinte de provenance et ses cas uniques.
+  - [x] Persister automatiquement chaque evaluation comptable reussie, retourner son `audit_id` et enregistrer le tool d'export; aucun payload de cas LLM n'est accepte.
+  - [x] Etendre un audit persiste a plusieurs candidats dans un meme run batch, sans appliquer de faits utilisateur globaux ni produire de constat fiscal ferme.
+  - [x] Permettre l'enrichissement d'un candidat du batch dans une nouvelle version immuable liee par `parent_audit_id`, sans ecraser le rapport precedent.
+- [x] Afficher dans le contrat de rapport statut, calcul attendu/comptabilise/ecart, devise, informations manquantes, limites, completude et localisateurs juridiques sans libelle ni tiers brut.
+- [x] Distinguer `supported_provisional`, `potential` et `indeterminate`; totaliser attendu, comptabilise et ecart separement par niveau et devise sans addition inter-devise.
+- [x] Ajouter journal d'audit, correlation des runs, version des referentiels et reproductibilite du resultat.
+  - [x] Conserver `audit_id`, `parent_audit_id`, `agent_run_id`, hash du GL, versions de referentiels, empreinte du contexte et horodatage; relier automatiquement l'audit au run agent qui retourne son identifiant.
+  - [x] Ajouter les evenements metier append-only sequences de creation, derivation et generation de rapport, avec metadonnees minimales sans donnees fiscales brutes.
+  - [x] Inclure dans l'empreinte reproductible du rapport statut, certitude, regle et version, montants, devise, faits manquants, anomalies, sources juridiques et completude; deux generations du meme audit conservent le meme `report_id` tandis qu'une trace differente change l'identifiant.
+- [x] Proteger et minimiser les libelles, tiers et montants dans logs, traces LLM et exports: aucun chemin absolu ni nom de feuille n'est envoye au modele, les erreurs Excel persistees sont generiques, les messages fiscaux sensibles sont remplaces par un contexte final minimal et les rapports excluent libelles et tiers bruts.
+- [ ] Challenger chaque tool sur le jeu d'or et rapprocher les resultats au GL source.
+  - [x] Challenger sur un classeur Excel derive des 26 lignes du jeu d'or `normalize_gl`, `assess_gl_readiness`, `reconstruct_accounting_entry`, `detect_ras_candidates`, `find_ras_counterpart`, `run_ras_audit_batch` et `generate_ras_audit_report`: 11 pieces, 7 candidats et 26 lignes groupees rapproches; corriger le double comptage inter-couches de `unknown_posting_key`.
+  - [x] Challenger les tools juridiques sur la matrice contractuelle dediee plutot que forcer des conclusions dans le jeu d'or comptable, dont les 8 scenarios laissent volontairement `legal_rule_id` vide.
+- [ ] Valider lint, types, tests unitaires, tests d'integration, performance et non-regression RAG.
+  - [x] Valider le lot faits attestes, fait generateur source, matrice juridique contractuelle, challenge tools sur jeu d'or et GL anonymise reel, schemas tools fermes, protocole de calibration semantique, mapping organisationnel, partenaires fournisseur/client, avoirs et comptes inconnus, persistance minimale, journal et empreinte reproductible, gates, enchainement mono-candidat, isolation, couverture technique v4, volumetrie 600 candidats, feuilles multiples, schema ambigu, multi-devises, paiement partiel bloque, refus multi-categories, ecarts de retenue, routage juridique date, perimetre loi de finances 2026 et isolation de l'ancien perimetre: 425 tests repartis RAG/RAS (260), Excel/tools (85), ledger (24), agent (47), routes/persistance (9) passent; Ruff et mypy passent sur les fichiers source modifies. La commande monolithique depasse le timeout Windows, les partitions sont vertes.
+- [ ] Declarer le backend robuste uniquement lorsque les metriques du jeu d'or et les gates sont atteintes.
+- [ ] Demarrer alors seulement l'adaptation du front decrite dans `front/todo.md`.
+
+### 9. Lots ulterieurs
+
+- [ ] Ajouter `calculate_ras_deadline` puis calendrier et notifications apres stabilisation du coeur d'audit.
+- [ ] Reconsiderer le chargement des declarations RAS pour confirmer les omissions declaratives dans une phase separee.
+- [ ] Reconsiderer factures, contrats, paiements et referentiel partenaires comme enrichissements optionnels.
+
+## Ancien perimetre multi-declarations — implemente mais gele
+
+Cette section conserve la trace des composants TVA, RAS, IUTS et IS deja livres. Elle ne constitue plus la roadmap active; aucun nouvel investissement n'est prevu hors correctif critique tant que le backend d'audit RAS sur GL n'est pas robuste.
 
 - [x] Prioriser TVA, puis RAS, IUTS et IS.
 - [x] Creer le domaine canonique `tax_declaration`.

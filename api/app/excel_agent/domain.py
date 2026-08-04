@@ -25,9 +25,16 @@ class ExcelFileReadError(ExcelAgentError):
 
 
 @dataclass(frozen=True)
+class ExcelSheetInfo:
+    name: str
+    visibility: str
+
+
+@dataclass(frozen=True)
 class ExcelSheetList:
     file_path: Path
     sheet_names: tuple[str, ...]
+    sheets: tuple[ExcelSheetInfo, ...]
 
 
 @dataclass(frozen=True)
@@ -54,6 +61,16 @@ class ExcelSheetProfile:
     row_count: int
     column_count: int
     columns: tuple[ExcelColumnProfile, ...]
+
+
+@dataclass(frozen=True)
+class ExcelSheetRows:
+    file_path: Path
+    content_sha256: str
+    sheet_name: str
+    row_count: int
+    columns: tuple[str, ...]
+    rows: tuple[MappingProxyType[str, Any], ...]
 
 
 @dataclass(frozen=True)

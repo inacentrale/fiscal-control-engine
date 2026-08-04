@@ -62,17 +62,75 @@ def _validate_arguments(
             raise InvalidToolArgumentsError(
                 f"unexpected argument for {tool_name}: {argument_name}",
             )
-        if _expects_string(expected_definition) and not isinstance(
-            argument_value,
-            str,
-        ):
+        if not _matches_declared_type(argument_value, expected_definition):
             raise InvalidToolArgumentsError(
-                f"argument must be a string for {tool_name}: {argument_name}",
+                f"argument has an invalid type for {tool_name}: {argument_name}",
             )
+        _validate_numeric_bounds(
+            tool_name,
+            argument_name,
+            argument_value,
+            expected_definition,
+        )
+        _validate_enum(tool_name, argument_name, argument_value, expected_definition)
 
 
-def _expects_string(property_definition: object) -> bool:
-    return (
-        isinstance(property_definition, dict)
-        and property_definition.get("type") == "string"
-    )
+def _matches_declared_type(value: object, definition: object) -> bool:
+    if not isinstance(definition, dict):
+        return False
+    declared = definition.get("type")
+    types = (declared,) if isinstance(declared, str) else tuple(declared or ())
+    return any(_matches_type(value, type_name) for type_name in types)
+
+
+def _matches_type(value: object, type_name: object) -> bool:
+    if type_name == "string":
+        return isinstance(value, str)
+    if type_name == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if type_name == "number":
+        return isinstance(value, int | float) and not isinstance(value, bool)
+    if type_name == "boolean":
+        return isinstance(value, bool)
+    if type_name == "object":
+        return isinstance(value, dict)
+    if type_name == "array":
+        return isinstance(value, list)
+    return type_name == "null" and value is None
+
+
+def _validate_numeric_bounds(
+    tool_name: str,
+    argument_name: str,
+    value: object,
+    definition: object,
+) -> None:
+    if not isinstance(definition, dict) or not isinstance(value, int | float):
+        return
+    if isinstance(value, bool):
+        return
+    minimum = definition.get("minimum")
+    maximum = definition.get("maximum")
+    if isinstance(minimum, int | float) and value < minimum:
+        raise InvalidToolArgumentsError(
+            f"argument is below minimum for {tool_name}: {argument_name}"
+        )
+    if isinstance(maximum, int | float) and value > maximum:
+        raise InvalidToolArgumentsError(
+            f"argument exceeds maximum for {tool_name}: {argument_name}"
+        )
+
+
+def _validate_enum(
+    tool_name: str,
+    argument_name: str,
+    value: object,
+    definition: object,
+) -> None:
+    if not isinstance(definition, dict):
+        return
+    allowed = definition.get("enum")
+    if isinstance(allowed, list) and value not in allowed:
+        raise InvalidToolArgumentsError(
+            f"argument is outside enum for {tool_name}: {argument_name}"
+        )

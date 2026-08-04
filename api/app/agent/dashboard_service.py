@@ -1,3 +1,4 @@
+from functools import lru_cache
 from pathlib import Path
 
 from app.account_mapping.rule_loader import load_classification_rules
@@ -8,10 +9,40 @@ from app.excel_agent.tool_registry import create_excel_tool_registry
 from app.ledger_analysis.account_balance_rules import load_account_balance_rules
 from app.ledger_analysis.posting_key_rules import load_posting_key_rules
 from app.llm.domain import ToolCall
+from app.rag_source.embedding_provider_factory import create_embedding_provider
+from app.rag_source.fiscal_vector_retriever import create_fiscal_vector_retriever
+from app.ras_audit.account_mapping import load_ras_ledger_account_mappings
+from app.ras_audit.accounting_assessment import (
+    load_ras_accounting_assessment_policies,
+)
+from app.ras_audit.candidate_signals import load_ras_candidate_signals
+from app.ras_audit.column_aliases import load_ledger_column_aliases
+from app.ras_audit.fact_context import RasFactContextAttestor
+from app.ras_audit.legal_rules import load_ras_legal_rules
+from app.ras_audit.persistence import SqlAlchemyRasAuditRepository
+from app.ras_audit.semantic_classifier import (
+    RasTransactionSemanticClassifier,
+    load_ras_semantic_policy,
+)
+from app.ras_audit.tax_event_rules import load_ras_tax_event_rules
+from app.ras_audit.tax_rag_query import TaxRagQueryService
+from app.ras_audit.theoretical_calculation import load_ras_calculation_parameters
 from app.schemas.agent import AgentDashboardChartResponse, AgentFileDashboardResponse
 
 
-def create_excel_tool_executor(settings: Settings) -> ExcelToolExecutor:
+def create_excel_tool_executor(
+    settings: Settings,
+    ras_audit_repository: SqlAlchemyRasAuditRepository | None = None,
+) -> ExcelToolExecutor:
+    candidate_signals = load_ras_candidate_signals(
+        Path(settings.ras_candidate_signals_path),
+    )
+    semantic_classifier = _create_semantic_classifier(
+        settings.ras_semantic_embedding_provider,
+        settings.ras_semantic_embedding_model_name,
+        settings.ras_candidate_signals_path,
+        settings.ras_semantic_policy_path,
+    )
     return ExcelToolExecutor(
         tools=ExcelAgentTools(
             allowed_root=Path(settings.excel_agent_allowed_root_path),
@@ -27,6 +58,92 @@ def create_excel_tool_executor(settings: Settings) -> ExcelToolExecutor:
         account_balance_rules=load_account_balance_rules(
             Path(settings.account_balance_rules_path),
         ),
+        ledger_column_aliases=load_ledger_column_aliases(
+            Path(settings.ras_gl_column_aliases_path),
+        ),
+        ras_candidate_signals=candidate_signals,
+        ras_semantic_classifier=semantic_classifier,
+        ras_legal_rules=load_ras_legal_rules(
+            Path(settings.ras_legal_rules_path),
+            repository_root=Path(settings.ras_legal_repository_root_path),
+        ),
+        ras_tax_event_rules=load_ras_tax_event_rules(
+            Path(settings.ras_tax_event_rules_path),
+            repository_root=Path(settings.ras_legal_repository_root_path),
+        ),
+        ras_calculation_parameters=load_ras_calculation_parameters(
+            Path(settings.ras_calculation_parameters_path),
+            repository_root=Path(settings.ras_legal_repository_root_path),
+        ),
+        ras_accounting_assessment_policies=(
+            load_ras_accounting_assessment_policies(
+                Path(settings.ras_accounting_assessment_policy_path),
+            )
+        ),
+        ras_fact_context_attestor=(
+            RasFactContextAttestor(
+                settings.ras_fact_context_signing_key.get_secret_value()
+            )
+            if settings.ras_fact_context_signing_key is not None
+            else None
+        ),
+        ras_audit_repository=ras_audit_repository,
+        max_ras_batch_candidates=settings.ras_batch_max_candidates,
+        default_company_code=settings.ras_default_company_code,
+        tax_rag_query_service=_create_tax_rag_query_service(
+            settings.tax_rag_source_root_path,
+            settings.rag_embedding_provider,
+            settings.rag_embedding_model_name,
+        ),
+        ras_ledger_account_mappings=(
+            load_ras_ledger_account_mappings(
+                Path(settings.ras_ledger_account_mapping_path),
+            )
+            if settings.ras_ledger_account_mapping_path
+            else ()
+        ),
+    )
+
+
+@lru_cache(maxsize=4)
+def _create_tax_rag_query_service(
+    source_root_path: str,
+    provider_name: str,
+    model_name: str,
+) -> TaxRagQueryService:
+    source_root = Path(source_root_path)
+    return TaxRagQueryService(
+        source_root,
+        vector_retriever=(
+            create_fiscal_vector_retriever(
+                source_root,
+                provider_name,
+                model_name,
+            )
+            if provider_name == "sentence-transformers"
+            else None
+        ),
+    )
+
+
+@lru_cache(maxsize=4)
+def _create_semantic_classifier(
+    provider_name: str,
+    model_name: str,
+    signals_path: str,
+    policy_path: str,
+) -> RasTransactionSemanticClassifier | None:
+    if provider_name.strip().lower() == "disabled":
+        return None
+    return RasTransactionSemanticClassifier(
+        embedding_provider=create_embedding_provider(
+            provider_name=provider_name,
+            model_name=model_name,
+        ),
+        provider_name=provider_name,
+        model_name=model_name,
+        signals=load_ras_candidate_signals(Path(signals_path)),
+        policy=load_ras_semantic_policy(Path(policy_path)),
     )
 
 
@@ -404,18 +521,14 @@ def _group_labels_and_values(
 
 def _group_currencies(groups: list[dict[str, object]]) -> list[str | None]:
     return [
-        str(group["currency"])
-        if group.get("currency") is not None
-        else None
+        str(group["currency"]) if group.get("currency") is not None else None
         for group in groups
     ]
 
 
 def _common_group_currency(groups: list[dict[str, object]]) -> str | None:
     currencies = {
-        str(group["currency"])
-        for group in groups
-        if group.get("currency") is not None
+        str(group["currency"]) for group in groups if group.get("currency") is not None
     }
     return next(iter(currencies)) if len(currencies) == 1 else None
 

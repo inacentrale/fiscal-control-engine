@@ -1,0 +1,3 @@
+scenario_id,line_id,company_code,fiscal_year,period,journal,document_number,line_number,posting_date,account_number,partner_id,label,posting_key,amount,currency,role
+SYN-001,SYN-LINE-001,SYN-CO,2025,1,ACH,SYN-PIECE-001,001,2025-01-10,632100,SYN-TIERS-001,Service,40,100000,XOF,expense
+SYN-001,SYN-LINE-001,SYN-CO,2025,1,ACH,SYN-PIECE-001,002,2025-01-10,401100,SYN-TIERS-001,Dette,50,100000,XOF,payable

@@ -1,0 +1,9 @@
+scenario_id,description,coverage_tags,expected_candidate_signal,expected_counterpart,legal_rule_id
+SYN-001,Depense candidate avec contrepartie RAS dans la meme piece,candidate;ras_counterpart_present,true,present,
+SYN-002,Depense candidate sans contrepartie RAS retrouvee,candidate;ras_counterpart_absent,true,absent,
+SYN-003,Ecriture de tresorerie sans signal de depense RAS,non_candidate,false,not_applicable,
+SYN-004,Piece candidate repartie sur plusieurs lignes de charges,candidate;multiline;ras_counterpart_present,true,present,
+SYN-005,Piece candidate puis extournee avec sa retenue,candidate;reversal;ras_counterpart_present,true,indeterminate,
+SYN-006,Retenue ajoutee par une piece de regularisation ulterieure,adjustment;candidate;ras_counterpart_present,true,present,
+SYN-007,Montants relies presentes dans des devises differentes,candidate;multicurrency,true,indeterminate,
+SYN-008,Candidat avec cle de comptabilisation inconnue,candidate;unknown_posting_key,true,indeterminate,

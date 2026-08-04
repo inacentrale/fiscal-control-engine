@@ -2,8 +2,10 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from openpyxl import load_workbook
 
 from app.excel_agent.domain import (
+    ExcelFileReadError,
     ExcelSheetNotFoundError,
     UnsafeExcelPathError,
     UnsupportedExcelFileError,
@@ -18,6 +20,10 @@ def test_list_sheets_returns_workbook_sheet_names(tmp_path: Path) -> None:
     result = tools.list_sheets(workbook_path)
 
     assert result.sheet_names == ("Grand Livre", "Plan Comptable")
+    assert [(sheet.name, sheet.visibility) for sheet in result.sheets] == [
+        ("Grand Livre", "visible"),
+        ("Plan Comptable", "visible"),
+    ]
 
 
 def test_get_columns_returns_normalized_headers(tmp_path: Path) -> None:
@@ -28,6 +34,47 @@ def test_get_columns_returns_normalized_headers(tmp_path: Path) -> None:
 
     assert result.sheet_name == "Grand Livre"
     assert result.columns == ("Compte", "Libelle", "Montant", "Date")
+
+
+def test_get_columns_preserves_special_headers_and_rejects_duplicates(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "headers.xlsx"
+    with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
+        pd.DataFrame([[1, 2, 3, 4]]).to_excel(
+            writer,
+            sheet_name="Écritures & RAS",
+            index=False,
+            header=["  Montant  ", "", "Débit/Crédit", "Montant"],
+        )
+    tools = ExcelAgentTools(allowed_root=tmp_path)
+
+    with pytest.raises(ExcelFileReadError, match="duplicate"):
+        tools.get_columns(workbook_path, sheet_name="Écritures & RAS")
+
+
+def test_list_sheets_exposes_hidden_state_and_releases_workbook(
+    tmp_path: Path,
+) -> None:
+    workbook_path = _write_workbook(tmp_path)
+    workbook = load_workbook(workbook_path)
+    workbook["Plan Comptable"].sheet_state = "hidden"
+    workbook.create_sheet("Feuille vide & spéciale")
+    workbook.save(workbook_path)
+    workbook.close()
+    tools = ExcelAgentTools(allowed_root=tmp_path)
+
+    result = tools.list_sheets(workbook_path)
+
+    assert result.sheet_names == (
+        "Grand Livre",
+        "Plan Comptable",
+        "Feuille vide & spéciale",
+    )
+    assert result.sheets[1].visibility == "hidden"
+    released_path = tmp_path / "released.xlsx"
+    workbook_path.rename(released_path)
+    assert released_path.is_file()
 
 
 def test_profile_sheet_returns_statistics_without_cell_values(tmp_path: Path) -> None:
@@ -53,6 +100,26 @@ def test_profile_sheet_returns_statistics_without_cell_values(tmp_path: Path) ->
     serialized = repr(profile)
     assert "Achat fournitures" not in serialized
     assert "Prestation conseil" not in serialized
+
+
+def test_read_sheet_rows_reuses_only_an_unchanged_file_within_executor(
+    tmp_path: Path,
+) -> None:
+    workbook_path = _write_workbook(tmp_path)
+    tools = ExcelAgentTools(allowed_root=tmp_path)
+
+    first = tools.read_sheet_rows(workbook_path, "Grand Livre")
+    second = tools.read_sheet_rows(workbook_path, "Grand Livre")
+    assert second is first
+
+    workbook = load_workbook(workbook_path)
+    workbook["Grand Livre"].append(["613000", "Nouvelle ligne", 10, None])
+    workbook.save(workbook_path)
+    workbook.close()
+
+    refreshed = tools.read_sheet_rows(workbook_path, "Grand Livre")
+    assert refreshed is not first
+    assert refreshed.row_count == first.row_count + 1
 
 
 def test_tools_reject_files_outside_allowed_root(tmp_path: Path) -> None:

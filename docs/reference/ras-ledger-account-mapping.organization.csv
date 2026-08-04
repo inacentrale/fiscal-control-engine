@@ -1,0 +1,8 @@
+mapping_id,version,role,match_type,account_pattern,normal_side,company_code,valid_from,valid_to,organization_reference
+ORG-RAS-EXP-51201000,org-plan-2026-08-04-v1,expense_candidate,exact,51201000,debit,,,,plan-comptable sha256:dc85bb065d1778cacf54f86665380656f58630f23d61ada8d5d68596a66cbd2d; leasing buildings; observed GL
+ORG-RAS-EXP-61312000,org-plan-2026-08-04-v1,expense_candidate,exact,61312000,debit,,,,plan-comptable sha256:dc85bb065d1778cacf54f86665380656f58630f23d61ada8d5d68596a66cbd2d; loyers batiments; observed GL
+ORG-RAS-EXP-61361600,org-plan-2026-08-04-v1,expense_candidate,exact,61361600,debit,,,,plan-comptable sha256:dc85bb065d1778cacf54f86665380656f58630f23d61ada8d5d68596a66cbd2d; commissions; observed GL
+ORG-RAS-EXP-61365000,org-plan-2026-08-04-v1,expense_candidate,exact,61365000,debit,,,,plan-comptable sha256:dc85bb065d1778cacf54f86665380656f58630f23d61ada8d5d68596a66cbd2d; honoraires; observed GL
+ORG-RAS-PAY-44531001,org-plan-2026-08-04-v1,ras_payable,exact,44531001,credit,,,,plan-comptable sha256:dc85bb065d1778cacf54f86665380656f58630f23d61ada8d5d68596a66cbd2d; RAS loyers; observed GL
+ORG-RAS-PAY-44531002,org-plan-2026-08-04-v1,ras_payable,exact,44531002,credit,,,,plan-comptable sha256:dc85bb065d1778cacf54f86665380656f58630f23d61ada8d5d68596a66cbd2d; RAS honoraires; observed GL
+ORG-RAS-PAY-44585100,org-plan-2026-08-04-v1,ras_payable,exact,44585100,credit,,,,plan-comptable sha256:dc85bb065d1778cacf54f86665380656f58630f23d61ada8d5d68596a66cbd2d; compte RAS; observed GL

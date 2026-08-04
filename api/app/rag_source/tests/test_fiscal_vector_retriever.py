@@ -35,11 +35,17 @@ def test_retriever_indexes_validated_fiscal_sources_and_preserves_citation() -> 
 
     results = retriever.search("Quel texte encadre la retenue sur loyer ?")
 
-    assert retriever.indexed_source_count == 16
-    assert retriever.indexed_chunk_count == 37
+    assert retriever.indexed_source_count == 14
+    assert retriever.indexed_chunk_count == 33
     assert results[0].chunk.section_reference == "articles 215 a 219"
     assert results[0].chunk.source_metadata.version
     assert results[0].chunk.source_text_sha256
+    assert all(
+        result.chunk.source_metadata.source_type.value != "law"
+        or result.chunk.source_metadata.applicable_from is not None
+        and result.chunk.source_metadata.applicable_from.year == 2026
+        for result in retriever.search("loi de finances", limit=100)
+    )
 
 
 def test_retriever_vectorizes_the_query_for_semantic_search() -> None:

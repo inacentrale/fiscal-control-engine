@@ -12,6 +12,7 @@ from app.agent_persistence.models import (
     AgentRunEventModel,
     AgentSessionModel,
     AgentToolResultModel,
+    RasAuditRunModel,
 )
 from app.agent_persistence.repository import SqlAlchemyAgentRepository
 from app.database import Base, create_database_engine, create_session_factory
@@ -112,6 +113,101 @@ def test_repository_persists_run_messages_events_and_tool_results(
     assert [message.role for message in messages] == ["user", "assistant"]
     assert events[0].tool_name == "query_ledger_entries"
     assert tool_results[0].output["total_matches"] == 203
+
+
+def test_repository_correlates_persisted_ras_audit_with_agent_run(
+    tmp_path: Path,
+) -> None:
+    session_factory = _create_session_factory(tmp_path)
+    now = datetime(2026, 8, 4, tzinfo=UTC)
+    with session_factory() as session:
+        session.add(
+            RasAuditRunModel(
+                audit_id="audit-1",
+                parent_audit_id=None,
+                agent_run_id=None,
+                session_id=None,
+                file_id=None,
+                source_sha256="a" * 64,
+                status="candidate_inventory_pending_legal_facts",
+                reference_versions=["mapping-v1"],
+                fact_context={"mode": "gl_only_batch"},
+                created_at=now,
+            )
+        )
+        session.commit()
+    repository = SqlAlchemyAgentRepository(
+        session_factory=session_factory,
+        now=lambda: now,
+    )
+
+    run_id = repository.save_run(
+        user_message="Audite la RAS",
+        result=AgentRunResult(
+            answer="Audit créé.",
+            provider_name="internal",
+            model_name="deterministic",
+            execution_events=(),
+            tool_results=(
+                ToolExecutionResult(
+                    tool_name="run_ras_audit_batch",
+                    ok=True,
+                    output={"audit_id": "audit-1", "candidate_count": 2},
+                ),
+            ),
+        ),
+    )
+
+    with session_factory() as session:
+        audit = session.get(RasAuditRunModel, "audit-1")
+        assert audit is not None
+        assert audit.agent_run_id == run_id
+
+
+def test_repository_persists_safe_ras_fact_attestation_only(
+    tmp_path: Path,
+) -> None:
+    session_factory = _create_session_factory(tmp_path)
+    repository = SqlAlchemyAgentRepository(session_factory=session_factory)
+    attestation = {
+        "message_sha256": "a" * 64,
+        "issued_at": "2026-08-04T12:00:00+00:00",
+        "pattern_versions": ["2026.1"],
+        "fact_names": ["residence_status", "tax_base_amount"],
+        "evidence_references": [
+            f"user_message:{'a' * 64}:chars:0-20:pattern:resident-1"
+        ],
+        "conflicting_fact_names": [],
+    }
+
+    run_id = repository.save_run(
+        user_message="Le prestataire est resident.",
+        result=AgentRunResult(
+            answer="Regle provisoire identifiee.",
+            provider_name="internal",
+            model_name="deterministic",
+            execution_events=(),
+            tool_results=(
+                ToolExecutionResult(
+                    tool_name="resolve_applicable_ras_rule",
+                    ok=True,
+                    output={
+                        "status": "resolved_provisional",
+                        "fact_attestation": attestation,
+                    },
+                ),
+            ),
+        ),
+    )
+
+    with session_factory() as session:
+        stored = session.query(AgentToolResultModel).filter_by(run_id=run_id).one()
+
+    persisted = stored.output["fact_attestation"]
+    assert persisted == attestation
+    assert "token" not in repr(persisted).lower()
+    assert "signing" not in repr(persisted).lower()
+    assert "tax_base_amount" in persisted["fact_names"]
 
 
 def test_repository_lists_recent_conversations_and_files(tmp_path: Path) -> None:

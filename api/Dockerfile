@@ -17,7 +17,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
-RUN uv sync --extra dev
+RUN uv sync --extra dev --extra embeddings
 
 COPY app ./app
 COPY tests ./tests

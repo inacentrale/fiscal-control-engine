@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,9 +17,30 @@ class Settings(BaseSettings):
     account_balance_rules_path: str = (
         "../docs/reference/syscohada-account-balance-rules.csv"
     )
-    vat_validation_rules_path: str = (
-        "../docs/reference/bf-vat-validation-rules.csv"
+    ras_gl_column_aliases_path: str = "../docs/reference/ras-gl-column-aliases.csv"
+    ras_candidate_signals_path: str = "../docs/reference/ras-candidate-signals.csv"
+    ras_semantic_policy_path: str = (
+        "../docs/reference/ras-semantic-classification-policy.csv"
     )
+    ras_semantic_embedding_provider: str = "disabled"
+    ras_semantic_embedding_model_name: str = (
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+    ras_legal_rules_path: str = "../docs/reference/bf-ras-legal-rules.csv"
+    ras_legal_repository_root_path: str = ".."
+    ras_tax_event_rules_path: str = "../docs/reference/bf-ras-tax-event-rules.csv"
+    ras_calculation_parameters_path: str = (
+        "../docs/reference/bf-ras-calculation-parameters.csv"
+    )
+    ras_accounting_assessment_policy_path: str = (
+        "../docs/reference/ras-accounting-assessment-policy.csv"
+    )
+    ras_user_fact_patterns_path: str = "../docs/reference/ras-user-fact-patterns.csv"
+    ras_fact_context_signing_key: SecretStr | None = None
+    ras_ledger_account_mapping_path: str | None = None
+    ras_default_company_code: str | None = None
+    ras_batch_max_candidates: int = Field(default=5_000, ge=1, le=20_000)
+    vat_validation_rules_path: str = "../docs/reference/bf-vat-validation-rules.csv"
     withholding_validation_rules_path: str = (
         "../docs/reference/bf-withholding-validation-rules.csv"
     )
@@ -31,17 +53,20 @@ class Settings(BaseSettings):
     corporate_income_tax_validation_rules_path: str = (
         "../docs/reference/bf-is-validation-rules.csv"
     )
-    tax_assurance_policy_path: str = (
-        "../docs/reference/bf-tax-assurance-policy.csv"
-    )
+    tax_assurance_policy_path: str = "../docs/reference/bf-tax-assurance-policy.csv"
     account_mapping_ledger_accounts_path: str = (
         "app/account_mapping/tests/fixtures/ledger_accounts.csv"
     )
     account_mapping_plan_accounts_path: str = (
         "app/account_mapping/tests/fixtures/plan_accounts.csv"
     )
-    rag_embedding_provider: str = "deterministic"
-    rag_embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+    rag_embedding_provider: Literal[
+        "disabled", "deterministic", "sentence-transformers"
+    ] = "disabled"
+    rag_embedding_model_name: str = (
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+    tax_rag_source_root_path: str = "../docs/source-corpus/fiscal"
     llm_provider_chain: str = "internal:controlled-response"
     llm_openai_compatible_api_key: SecretStr | None = None
     llm_openai_compatible_base_url: str = "https://api.openai.com/v1"

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections import OrderedDict
+from hashlib import sha256
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 from zipfile import BadZipFile
 
@@ -19,9 +22,11 @@ from app.excel_agent.domain import (
     ExcelColumnList,
     ExcelColumnProfile,
     ExcelFileReadError,
+    ExcelSheetInfo,
     ExcelSheetList,
     ExcelSheetNotFoundError,
     ExcelSheetProfile,
+    ExcelSheetRows,
     UnsafeExcelPathError,
     UnsupportedExcelFileError,
 )
@@ -36,36 +41,44 @@ class ExcelAgentTools:
         self._allowed_roots = tuple(
             root.resolve() for root in (allowed_root, *allowed_roots)
         )
+        self._sheet_rows_cache: OrderedDict[
+            tuple[str, str, int, int],
+            ExcelSheetRows,
+        ] = OrderedDict()
 
     def list_sheets(self, file_path: Path) -> ExcelSheetList:
         resolved_path = self._resolve_source_path(file_path)
         with self._open_workbook(resolved_path) as excel_file:
             sheet_names = tuple(excel_file.sheet_names)
+            sheets = tuple(
+                ExcelSheetInfo(
+                    name=worksheet.title,
+                    visibility=worksheet.sheet_state,
+                )
+                for worksheet in excel_file.book.worksheets
+            )
         return ExcelSheetList(
             file_path=resolved_path,
             sheet_names=sheet_names,
+            sheets=sheets,
         )
 
     def get_columns(self, file_path: Path, sheet_name: str) -> ExcelColumnList:
         resolved_path = self._resolve_source_path(file_path)
         with self._open_workbook(resolved_path) as excel_file:
             _require_sheet(excel_file, sheet_name)
-        dataframe = pd.read_excel(
-            resolved_path,
-            sheet_name=sheet_name,
-            nrows=0,
-            engine="openpyxl",
-        )
+            columns = _workbook_columns(excel_file, sheet_name)
         return ExcelColumnList(
             file_path=resolved_path,
             sheet_name=sheet_name,
-            columns=_normalize_columns(tuple(dataframe.columns)),
+            columns=columns,
         )
 
     def profile_sheet(self, file_path: Path, sheet_name: str) -> ExcelSheetProfile:
         resolved_path = self._resolve_source_path(file_path)
         with self._open_workbook(resolved_path) as excel_file:
             _require_sheet(excel_file, sheet_name)
+            _workbook_columns(excel_file, sheet_name)
         dataframe = pd.read_excel(
             resolved_path,
             sheet_name=sheet_name,
@@ -82,6 +95,54 @@ class ExcelAgentTools:
                 for index in range(len(columns))
             ),
         )
+
+    def read_sheet_rows(self, file_path: Path, sheet_name: str) -> ExcelSheetRows:
+        """Load rows for deterministic backend services, never for direct output."""
+        resolved_path = self._resolve_source_path(file_path)
+        cache_key = _sheet_cache_key(resolved_path, sheet_name)
+        cached = self._sheet_rows_cache.get(cache_key)
+        if cached is not None:
+            self._sheet_rows_cache.move_to_end(cache_key)
+            return cached
+        with self._open_workbook(resolved_path) as excel_file:
+            _require_sheet(excel_file, sheet_name)
+            _workbook_columns(excel_file, sheet_name)
+        dataframe = pd.read_excel(
+            resolved_path,
+            sheet_name=sheet_name,
+            engine="openpyxl",
+            dtype=object,
+        )
+        columns = _normalize_columns(tuple(dataframe.columns))
+        if len(set(columns)) != len(columns):
+            raise ExcelFileReadError("duplicate normalized Excel columns")
+        dataframe.columns = list(columns)
+        clean_frame = dataframe.astype(object).where(dataframe.notna(), None)
+        rows = tuple(
+            MappingProxyType(dict(record))
+            for record in clean_frame.to_dict(orient="records")
+        )
+        if _sheet_cache_key(resolved_path, sheet_name) != cache_key:
+            raise ExcelFileReadError("Excel file changed while being read")
+        result = ExcelSheetRows(
+            file_path=resolved_path,
+            content_sha256=_file_sha256(resolved_path),
+            sheet_name=sheet_name,
+            row_count=len(rows),
+            columns=columns,
+            rows=rows,
+        )
+        stale_keys = tuple(
+            key
+            for key in self._sheet_rows_cache
+            if key[0] == str(resolved_path) and key[1] == sheet_name
+        )
+        for stale_key in stale_keys:
+            self._sheet_rows_cache.pop(stale_key, None)
+        self._sheet_rows_cache[cache_key] = result
+        while len(self._sheet_rows_cache) > 4:
+            self._sheet_rows_cache.popitem(last=False)
+        return result
 
     def _resolve_source_path(self, file_path: Path) -> Path:
         resolved_path = file_path.resolve()
@@ -122,6 +183,21 @@ def _normalize_columns(columns: tuple[Any, ...]) -> tuple[str, ...]:
     return tuple(normalized_columns)
 
 
+def _workbook_columns(
+    excel_file: pd.ExcelFile,
+    sheet_name: str,
+) -> tuple[str, ...]:
+    worksheet = excel_file.book[sheet_name]
+    first_row = next(
+        worksheet.iter_rows(min_row=1, max_row=1, values_only=True),
+        (),
+    )
+    columns = _normalize_columns(tuple(first_row))
+    if len(set(columns)) != len(columns):
+        raise ExcelFileReadError("duplicate normalized Excel columns")
+    return columns
+
+
 def _profile_column(
     series: pd.Series[Any],
     column_name: str,
@@ -160,3 +236,16 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _file_sha256(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _sheet_cache_key(path: Path, sheet_name: str) -> tuple[str, str, int, int]:
+    stat = path.stat()
+    return str(path), sheet_name, stat.st_size, stat.st_mtime_ns

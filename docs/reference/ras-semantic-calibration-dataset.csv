@@ -1,0 +1,9 @@
+case_id,label,category,expected_match,expected_signal_id
+CAL-001,Appui expert ponctuel,assistance_service,true,SIG-RAS-003
+CAL-002,Avis professionnel specialise,professional_service,true,SIG-RAS-004
+CAL-003,Mission d'analyse sectorielle,study_service,true,SIG-RAS-005
+CAL-004,Mise a disposition de bureaux,rental,true,SIG-RAS-007
+CAL-005,Droit d'utilisation d'une marque,royalty,true,SIG-RAS-008
+CAL-006,Achat de carburant,non_ras_control,false,
+CAL-007,Virement de tresorerie interne,non_ras_control,false,
+CAL-008,Achat de fournitures de bureau,non_ras_control,false,

@@ -28,12 +28,44 @@ from app.llm.domain import ModelRequest, ModelResponse, ToolCall
 from app.main import create_app
 from app.routers.agent import (
     AgentEndpointError,
+    _effective_allowed_tools,
     get_agent_file_resolver,
     get_agent_file_upload_service,
     get_agent_orchestrator,
     get_agent_repository,
     get_api_settings,
 )
+
+
+def test_ras_tools_are_enabled_only_when_server_references_are_configured() -> None:
+    unconfigured = Settings(
+        _env_file=None,
+        ras_fact_context_signing_key=None,
+        ras_ledger_account_mapping_path=None,
+    )
+    attested = Settings(
+        _env_file=None,
+        ras_fact_context_signing_key="k" * 32,
+        ras_ledger_account_mapping_path=None,
+    )
+    fully_configured = Settings(
+        _env_file=None,
+        ras_fact_context_signing_key="k" * 32,
+        ras_ledger_account_mapping_path="mapping.csv",
+    )
+
+    assert "resolve_applicable_ras_rule" not in _effective_allowed_tools(
+        ["resolve_applicable_ras_rule"], unconfigured
+    )
+    attested_tools = _effective_allowed_tools([], attested)
+    assert "resolve_applicable_ras_rule" in attested_tools
+    assert "calculate_theoretical_ras" in attested_tools
+    assert "generate_ras_audit_report" in attested_tools
+    assert "run_ras_audit_batch" not in attested_tools
+    assert "assess_ras_accounting" not in attested_tools
+    fully_configured_tools = _effective_allowed_tools([], fully_configured)
+    assert "run_ras_audit_batch" in fully_configured_tools
+    assert "assess_ras_accounting" in fully_configured_tools
 
 
 def test_agent_run_endpoint_returns_orchestrated_answer() -> None:

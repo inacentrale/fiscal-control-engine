@@ -1,0 +1,14 @@
+account_number,account_label,observed_in_gl,classification,activated,reason
+34552001,T.V.A A RECUPERER,true,out_of_ras_scope,false,TVA receivable account; not a RAS payable or candidate expense
+41100500,"Op.income, fishing activity",true,out_of_ras_scope,false,Income account; not a candidate expense
+44380002,Compte Fournisseurs employés,true,out_of_ras_scope,false,Employee supplier account; not explicit RAS
+44531001,RAS/LOYERS,true,ras_payable,true,Explicit RAS payable label
+44531002,RETENUE A LA SOURCE SUR HONORAIRES MAROC,true,ras_payable,true,Explicit RAS payable label; legal applicability remains separate
+44585100,Compte RAS,true,ras_payable,true,Explicit generic RAS payable label
+51200500,"Op.admin.cost, leasing, land",true,indeterminate,false,Expense-like label conflicts with 151 credit-side GL entries; chart context required
+51201000,"Op.admin.cost, leasing, constructions/ buildings",true,expense_candidate,true,Expense lease account; fiscal applicability remains unresolved
+60610000,#### (#### ##),true,indeterminate,false,Masked label prevents reliable classification
+61312000,LOYERS BATIMENTS,true,expense_candidate,true,Explicit rental expense
+61361600,COMMISSIONS SUR TRANSFERT DE F,true,expense_candidate,true,Explicit commission expense
+61365000,HONORAIRES,true,expense_candidate,true,Explicit professional fee expense
+706000,PRESTATIONS DE SERVICES,true,out_of_ras_scope,false,Revenue account; not a candidate expense

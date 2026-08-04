@@ -1,0 +1,2 @@
+scenario_id,description,coverage_tags,expected_candidate_signal,expected_counterpart,legal_rule_id
+SYN-001,Scenario avec ligne dupliquee,candidate,true,absent,

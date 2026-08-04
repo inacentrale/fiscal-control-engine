@@ -80,6 +80,12 @@ le fournisseur `sentence-transformers` reste configurable au deploiement.
 Le validateur local detecte 16 fichiers source fiscaux, tous indexables
 (`validation_status: validated`, aucun placeholder restant).
 
+**Perimetre actif decide le 2026-08-04**: les anciennes lois de finances
+restent archivees dans le corpus pour la tracabilite, mais les retrievers
+lexical et vectoriel n'indexent comme loi que la loi de finances 2026. Les
+sources non legislatives, notamment le CGI, restent actives. Une loi 2026 ne
+doit jamais etre appliquee retroactivement a une periode anterieure.
+
 Le chargement Markdown vers blocs RAG est documente dans `docs/source-corpus/markdown-loading.md`.
 
 L'export Markdown vers CSV est documente dans `docs/source-corpus/export.md`.

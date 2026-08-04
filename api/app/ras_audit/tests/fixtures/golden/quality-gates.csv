@@ -1,0 +1,5 @@
+metric_name,direction,threshold,unit,description
+candidate_recall,minimum,1,ratio,Tous les candidats du jeu d'or doivent etre detectes
+firm_alert_precision,minimum,1,ratio,Aucune alerte ferme ne doit etre emise sans preuve complete
+indeterminate_explanation_rate,minimum,1,ratio,Tout cas indeterminable doit enumerer les faits manquants
+calculation_absolute_error,maximum,0,currency_unit,Les calculs deterministes doivent correspondre exactement aux attentes

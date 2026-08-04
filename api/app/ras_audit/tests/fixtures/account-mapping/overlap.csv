@@ -1,0 +1,3 @@
+mapping_id,version,role,match_type,account_pattern,normal_side,company_code,valid_from,valid_to,organization_reference
+SYN-MAP-001,SYN-v1,ras_payable,exact,447100,credit,SYN-CO,2025-01-01,,Synthetic chart fixture
+SYN-MAP-002,SYN-v2,ras_payable,exact,447100,credit,SYN-CO,2025-06-01,,Synthetic chart fixture

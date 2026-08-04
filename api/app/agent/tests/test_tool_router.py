@@ -4,6 +4,7 @@ from app.agent.tool_router import (
     DeterministicToolRouteRequest,
     route_deterministic_tool_calls,
 )
+from app.llm.domain import ToolCall
 
 
 def test_tool_router_selects_data_quality_tool_for_quality_intent() -> None:
@@ -21,6 +22,73 @@ def test_tool_router_selects_data_quality_tool_for_quality_intent() -> None:
     ]
 
 
+def test_tool_router_selects_tax_rag_without_a_ledger_file() -> None:
+    tool_calls = route_deterministic_tool_calls(
+        DeterministicToolRouteRequest(
+            user_message="Que dit le CGI sur la RAS des prestataires résidents ?",
+            file_path=None,
+            sheet_name=None,
+            allowed_tools=("query_tax_rag",),
+        ),
+    )
+
+    assert len(tool_calls) == 1
+    assert tool_calls[0].name == "query_tax_rag"
+    assert tool_calls[0].arguments["limit"] == 5
+
+
+def test_tool_router_routes_dated_ras_calculation_without_llm_arithmetic() -> None:
+    tool_calls = route_deterministic_tool_calls(
+        DeterministicToolRouteRequest(
+            user_message=(
+                "Calcule la RAS, le paiement effectué le 10/01/2025."
+            ),
+            file_path=None,
+            sheet_name=None,
+            allowed_tools=("calculate_theoretical_ras",),
+        )
+    )
+
+    assert tool_calls == (
+        ToolCall(
+            name="calculate_theoretical_ras",
+            arguments={"transaction_date": "2025-01-10"},
+        ),
+    )
+
+
+def test_tool_router_never_invents_missing_or_invalid_tax_event_date() -> None:
+    for message in (
+        "Calcule la RAS.",
+        "Calcule la RAS, le paiement effectue le 31/02/2025.",
+    ):
+        assert route_deterministic_tool_calls(
+            DeterministicToolRouteRequest(
+                user_message=message,
+                file_path=None,
+                sheet_name=None,
+                allowed_tools=("calculate_theoretical_ras",),
+            )
+        ) == ()
+
+
+def test_tool_router_routes_dated_ras_rule_resolution() -> None:
+    tool_calls = route_deterministic_tool_calls(
+        DeterministicToolRouteRequest(
+            user_message="Quel taux RAS applicable, paiement effectué le 2026-04-10 ?",
+            file_path=None,
+            sheet_name=None,
+            allowed_tools=("resolve_applicable_ras_rule",),
+        )
+    )
+
+    assert tool_calls == (
+        ToolCall(
+            name="resolve_applicable_ras_rule",
+            arguments={"transaction_date": "2026-04-10"},
+        ),
+    )
+
 def test_tool_router_selects_tax_candidates_tool_for_tax_intent() -> None:
     tool_calls = route_deterministic_tool_calls(
         DeterministicToolRouteRequest(
@@ -34,6 +102,34 @@ def test_tool_router_selects_tax_candidates_tool_for_tax_intent() -> None:
     assert [tool_call.name for tool_call in tool_calls] == [
         "detect_tax_candidates",
     ]
+
+
+def test_tool_router_prefers_piece_level_ras_candidate_tool() -> None:
+    tool_calls = route_deterministic_tool_calls(
+        DeterministicToolRouteRequest(
+            user_message="Trouve les candidats RAS à revoir.",
+            file_path=Path("ledger.xlsx"),
+            sheet_name="Grand Livre",
+            allowed_tools=("detect_tax_candidates", "detect_ras_candidates"),
+        ),
+    )
+
+    assert [tool_call.name for tool_call in tool_calls] == [
+        "detect_ras_candidates",
+    ]
+
+
+def test_tool_router_selects_persisted_batch_for_ras_audit() -> None:
+    tool_calls = route_deterministic_tool_calls(
+        DeterministicToolRouteRequest(
+            user_message="Audite la RAS de ce fichier.",
+            file_path=Path("ledger.xlsx"),
+            sheet_name="Grand Livre",
+            allowed_tools=("detect_ras_candidates", "run_ras_audit_batch"),
+        ),
+    )
+
+    assert [tool_call.name for tool_call in tool_calls] == ["run_ras_audit_batch"]
 
 
 def test_tool_router_selects_global_excel_analysis_for_explanation_intent() -> None:
@@ -73,6 +169,48 @@ def test_tool_router_selects_global_excel_analysis_for_explanation_intent() -> N
         "document_type",
         "tax_code",
     ]
+
+
+def test_tool_router_lists_sheets_without_requiring_a_selected_sheet() -> None:
+    tool_calls = route_deterministic_tool_calls(
+        DeterministicToolRouteRequest(
+            user_message="Liste les feuilles et les onglets du fichier.",
+            file_path=Path("ledger.xlsx"),
+            sheet_name=None,
+            allowed_tools=("list_sheets",),
+        ),
+    )
+
+    assert tool_calls == (
+        ToolCall(name="list_sheets", arguments={"file_path": "ledger.xlsx"}),
+    )
+
+
+def test_tool_router_routes_columns_profile_and_schema_without_llm() -> None:
+    cases = (
+        ("Quelles colonnes contient la feuille ?", "get_columns"),
+        ("Profile la feuille active.", "profile_sheet"),
+        ("Analyse la structure du Grand Livre.", "classify_ledger_schema"),
+    )
+
+    for message, expected_tool in cases:
+        tool_calls = route_deterministic_tool_calls(
+            DeterministicToolRouteRequest(
+                user_message=message,
+                file_path=Path("ledger.xlsx"),
+                sheet_name="Grand Livre",
+                allowed_tools=(expected_tool,),
+            ),
+        )
+        assert tool_calls == (
+            ToolCall(
+                name=expected_tool,
+                arguments={
+                    "file_path": "ledger.xlsx",
+                    "sheet_name": "Grand Livre",
+                },
+            ),
+        )
 
 
 def test_tool_router_builds_query_filter_for_account_question() -> None:
@@ -119,9 +257,7 @@ def test_tool_router_selects_signed_metrics_for_account_balance() -> None:
 def test_tool_router_applies_fiscal_year_to_account_balance() -> None:
     tool_calls = route_deterministic_tool_calls(
         DeterministicToolRouteRequest(
-            user_message=(
-                "Calcule le solde du compte 61365000 pour l'exercice 2024."
-            ),
+            user_message=("Calcule le solde du compte 61365000 pour l'exercice 2024."),
             file_path=Path("ledger.xlsx"),
             sheet_name="Grand Livre",
             allowed_tools=("calculate_ledger_metrics",),

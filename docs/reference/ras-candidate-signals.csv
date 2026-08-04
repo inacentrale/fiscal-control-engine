@@ -1,0 +1,11 @@
+signal_id,version,signal_type,phrase,strength,operation_hint,valid_from,valid_to,source_kind,source_reference,decision_effect
+SIG-RAS-001,1.0.0,positive,honoraires,strong,professional_service,,,internal_detection_taxonomy,operational-review-v1,review_only
+SIG-RAS-002,1.0.0,positive,prestation,strong,service,,,internal_detection_taxonomy,operational-review-v1,review_only
+SIG-RAS-003,1.0.0,positive,assistance,strong,assistance_service,,,internal_detection_taxonomy,operational-review-v1,review_only
+SIG-RAS-004,1.0.0,positive,consultation,strong,professional_service,,,internal_detection_taxonomy,operational-review-v1,review_only
+SIG-RAS-005,1.0.0,positive,etude,strong,study_service,,,internal_detection_taxonomy,operational-review-v1,review_only
+SIG-RAS-006,1.0.0,positive,service,supporting,service,,,internal_detection_taxonomy,operational-review-v1,review_only
+SIG-RAS-007,1.0.0,positive,loyer,supporting,rental,,,internal_detection_taxonomy,operational-review-v1,review_only
+SIG-RAS-008,1.0.0,positive,redevance,supporting,royalty,,,internal_detection_taxonomy,operational-review-v1,review_only
+SIG-RAS-EX-001,1.0.0,exclusion,virement entre comptes bancaires,strong,internal_treasury_transfer,,,internal_detection_taxonomy,operational-review-v1,review_only
+SIG-RAS-EX-002,1.0.0,exclusion,extourne,strong,reversal,,,internal_detection_taxonomy,operational-review-v1,review_only

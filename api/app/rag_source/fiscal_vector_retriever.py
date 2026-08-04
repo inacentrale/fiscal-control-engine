@@ -4,6 +4,7 @@ from app.rag_source.chunker import chunk_corpus_blocks
 from app.rag_source.domain import RagSourceType
 from app.rag_source.embedding_provider import EmbeddingProvider
 from app.rag_source.embedding_provider_factory import create_embedding_provider
+from app.rag_source.fiscal_source_scope import is_fiscal_source_in_active_scope
 from app.rag_source.markdown_source_loader import load_markdown_source_blocks
 from app.rag_source.source_corpus_validator import (
     find_source_corpus_files,
@@ -34,6 +35,7 @@ class FiscalVectorRetriever:
             if validate_source_corpus_file(source_path).is_indexable
             for block in load_markdown_source_blocks(source_path)
             if block.metadata.domain == "fiscal"
+            and is_fiscal_source_in_active_scope(block.metadata)
         )
         if not corpus_blocks:
             raise ValueError("no validated fiscal source is available for indexing")

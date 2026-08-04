@@ -1,0 +1,2 @@
+version,currency,tolerance,policy_kind,notes
+1.0.0,*,0,internal_control_policy,Exact comparison until a sourced rounding or materiality policy is approved

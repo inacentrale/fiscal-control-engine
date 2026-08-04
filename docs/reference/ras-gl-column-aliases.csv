@@ -1,0 +1,62 @@
+version,field,alias
+bf.ras-gl-columns.v2,company_code,Societe
+bf.ras-gl-columns.v2,company_code,Code societe
+bf.ras-gl-columns.v2,company_code,Company code
+bf.ras-gl-columns.v2,company_code,BUKRS
+bf.ras-gl-columns.v2,fiscal_year,Exercice
+bf.ras-gl-columns.v2,fiscal_year,Exercice comptable
+bf.ras-gl-columns.v2,fiscal_year,Annee fiscale
+bf.ras-gl-columns.v2,fiscal_year,Fiscal year
+bf.ras-gl-columns.v2,fiscal_year,GJAHR
+bf.ras-gl-columns.v2,period,Periode
+bf.ras-gl-columns.v2,period,Periode comptable
+bf.ras-gl-columns.v2,period,Mois comptable
+bf.ras-gl-columns.v2,period,Posting period
+bf.ras-gl-columns.v2,period,MONAT
+bf.ras-gl-columns.v2,journal,Journal
+bf.ras-gl-columns.v2,journal,Code journal
+bf.ras-gl-columns.v2,journal,Type de journal
+bf.ras-gl-columns.v2,journal,Type de piece
+bf.ras-gl-columns.v2,document_number,Numero piece
+bf.ras-gl-columns.v2,document_number,Nº piece
+bf.ras-gl-columns.v2,document_number,Piece comptable
+bf.ras-gl-columns.v2,document_number,Document number
+bf.ras-gl-columns.v2,document_number,BELNR
+bf.ras-gl-columns.v2,line_number,Numero ligne
+bf.ras-gl-columns.v2,line_number,Ligne piece
+bf.ras-gl-columns.v2,line_number,Line item
+bf.ras-gl-columns.v2,line_number,BUZEI
+bf.ras-gl-columns.v2,posting_date,Date comptable
+bf.ras-gl-columns.v2,posting_date,Date piece
+bf.ras-gl-columns.v2,posting_date,Date de comptabilisation
+bf.ras-gl-columns.v2,posting_date,Posting date
+bf.ras-gl-columns.v2,posting_date,BUDAT
+bf.ras-gl-columns.v2,account_number,Compte
+bf.ras-gl-columns.v2,account_number,Compte general
+bf.ras-gl-columns.v2,account_number,Numero compte
+bf.ras-gl-columns.v2,account_number,GL account
+bf.ras-gl-columns.v2,account_number,HKONT
+bf.ras-gl-columns.v2,partner_id,Tiers
+bf.ras-gl-columns.v2,vendor_id,Fournisseur
+bf.ras-gl-columns.v2,vendor_id,Vendor
+bf.ras-gl-columns.v2,vendor_id,LIFNR
+bf.ras-gl-columns.v2,customer_id,Client
+bf.ras-gl-columns.v2,customer_id,Customer
+bf.ras-gl-columns.v2,customer_id,KUNNR
+bf.ras-gl-columns.v2,label,Libelle
+bf.ras-gl-columns.v2,label,Texte
+bf.ras-gl-columns.v2,label,Description
+bf.ras-gl-columns.v2,label,SGTXT
+bf.ras-gl-columns.v2,posting_key,Cle de comptabilisation
+bf.ras-gl-columns.v2,posting_key,Cle comptabilisation
+bf.ras-gl-columns.v2,posting_key,Posting key
+bf.ras-gl-columns.v2,posting_key,BSCHL
+bf.ras-gl-columns.v2,amount,Montant devise document
+bf.ras-gl-columns.v2,amount,Montant en devise document
+bf.ras-gl-columns.v2,amount,Document currency amount
+bf.ras-gl-columns.v2,amount,WRBTR
+bf.ras-gl-columns.v2,currency,Devise du document
+bf.ras-gl-columns.v2,currency,Devise piece
+bf.ras-gl-columns.v2,currency,Devise document
+bf.ras-gl-columns.v2,currency,Document currency
+bf.ras-gl-columns.v2,currency,WAERS

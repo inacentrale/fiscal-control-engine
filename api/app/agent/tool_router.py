@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from unicodedata import normalize
 
@@ -17,12 +18,98 @@ class DeterministicToolRouteRequest:
 def route_deterministic_tool_calls(
     request: DeterministicToolRouteRequest,
 ) -> tuple[ToolCall, ...]:
-    if request.file_path is None or request.sheet_name is None:
+    message = _normalize_for_intent(request.user_message)
+    if (
+        _mentions_tax_legal_research(message)
+        and "query_tax_rag" in request.allowed_tools
+    ):
+        return (
+            ToolCall(
+                name="query_tax_rag",
+                arguments={"query": request.user_message, "limit": 5},
+            ),
+        )
+    tax_event_date = _extract_tax_event_date(request.user_message)
+    if (
+        _mentions_ras_calculation(message)
+        and tax_event_date is not None
+        and "calculate_theoretical_ras" in request.allowed_tools
+    ):
+        return (
+            ToolCall(
+                name="calculate_theoretical_ras",
+                arguments={"transaction_date": tax_event_date.isoformat()},
+            ),
+        )
+    if (
+        _mentions_ras_rule_resolution(message)
+        and tax_event_date is not None
+        and "resolve_applicable_ras_rule" in request.allowed_tools
+    ):
+        return (
+            ToolCall(
+                name="resolve_applicable_ras_rule",
+                arguments={"transaction_date": tax_event_date.isoformat()},
+            ),
+        )
+    if request.file_path is None:
         return ()
 
-    message = _normalize_for_intent(request.user_message)
+    if _mentions_sheet_list(message) and "list_sheets" in request.allowed_tools:
+        return (
+            ToolCall(
+                name="list_sheets",
+                arguments={"file_path": str(request.file_path)},
+            ),
+        )
+    if request.sheet_name is None:
+        return ()
+    if _mentions_column_list(message) and "get_columns" in request.allowed_tools:
+        return (
+            ToolCall(
+                name="get_columns",
+                arguments={
+                    "file_path": str(request.file_path),
+                    "sheet_name": request.sheet_name,
+                },
+            ),
+        )
+    if _mentions_sheet_profile(message) and "profile_sheet" in request.allowed_tools:
+        return (
+            ToolCall(
+                name="profile_sheet",
+                arguments={
+                    "file_path": str(request.file_path),
+                    "sheet_name": request.sheet_name,
+                },
+            ),
+        )
+    if (
+        _mentions_ledger_schema(message)
+        and "classify_ledger_schema" in request.allowed_tools
+    ):
+        return (
+            ToolCall(
+                name="classify_ledger_schema",
+                arguments={
+                    "file_path": str(request.file_path),
+                    "sheet_name": request.sheet_name,
+                },
+            ),
+        )
+
     requested_tools: list[str] = []
     query_filters = _ledger_query_filters(message)
+    if _mentions_ras_audit(message) and "run_ras_audit_batch" in request.allowed_tools:
+        return (
+            ToolCall(
+                name="run_ras_audit_batch",
+                arguments={
+                    "file_path": str(request.file_path),
+                    "sheet_name": request.sheet_name,
+                },
+            ),
+        )
     if _mentions_aggregation(message) and "aggregate_ledger" in request.allowed_tools:
         return (
             ToolCall(
@@ -67,7 +154,13 @@ def route_deterministic_tool_calls(
         )
     if _mentions_data_quality(message):
         requested_tools.append("detect_data_quality_issues")
-    if _mentions_tax_candidates(message):
+    if _mentions_ras_candidates(message):
+        requested_tools.append(
+            "detect_ras_candidates"
+            if "detect_ras_candidates" in request.allowed_tools
+            else "detect_tax_candidates"
+        )
+    elif _mentions_tax_candidates(message):
         requested_tools.append("detect_tax_candidates")
     if _mentions_global_excel_explanation(message):
         return _global_excel_analysis_tool_calls(request)
@@ -85,6 +178,83 @@ def route_deterministic_tool_calls(
     )
 
 
+def _mentions_tax_legal_research(message: str) -> bool:
+    return any(
+        phrase in message
+        for phrase in (
+            "que dit le cgi",
+            "selon le cgi",
+            "quel article",
+            "quelle source juridique",
+            "source juridique",
+            "loi de finances",
+            "texte fiscal",
+            "regle fiscale applicable",
+        )
+    )
+
+
+def _mentions_ras_audit(message: str) -> bool:
+    return any(
+        phrase in message
+        for phrase in (
+            "audit ras",
+            "audite la ras",
+            "auditer la ras",
+            "controle ras",
+            "controle de la ras",
+            "analyse ras",
+            "analyse de la ras",
+        )
+    )
+
+
+def _mentions_ras_calculation(message: str) -> bool:
+    return any(
+        phrase in message
+        for phrase in (
+            "calcule la ras",
+            "calcul de la ras",
+            "montant de la ras",
+            "ras theorique",
+        )
+    )
+
+
+def _mentions_ras_rule_resolution(message: str) -> bool:
+    return any(
+        phrase in message
+        for phrase in (
+            "quelle regle ras",
+            "regle ras applicable",
+            "quel taux ras",
+            "taux ras applicable",
+        )
+    )
+
+
+def _extract_tax_event_date(message: str) -> date | None:
+    without_accents = normalize("NFKD", message)
+    searchable = without_accents.encode("ascii", "ignore").decode("ascii").lower()
+    match = re.search(
+        r"\b(?:paiement effectue le|mise en paiement le|loyer acquis au)\s+"
+        r"(\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})\b",
+        searchable,
+    )
+    if match is None:
+        return None
+    raw_date = match.group(1)
+    normalized = (
+        raw_date
+        if "-" in raw_date
+        else f"{raw_date[6:10]}-{raw_date[3:5]}-{raw_date[0:2]}"
+    )
+    try:
+        return date.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
 def _mentions_global_excel_explanation(message: str) -> bool:
     return any(
         keyword in message
@@ -100,6 +270,56 @@ def _mentions_global_excel_explanation(message: str) -> bool:
             "que contient le fichier",
             "resume cet excel",
             "resume le fichier",
+        )
+    )
+
+
+def _mentions_sheet_list(message: str) -> bool:
+    return any(
+        phrase in message
+        for phrase in (
+            "liste les feuilles",
+            "liste des feuilles",
+            "quelles feuilles",
+            "quels onglets",
+            "liste les onglets",
+        )
+    )
+
+
+def _mentions_column_list(message: str) -> bool:
+    return any(
+        phrase in message
+        for phrase in (
+            "liste les colonnes",
+            "liste des colonnes",
+            "quelles colonnes",
+            "quels champs",
+            "en tetes",
+        )
+    )
+
+
+def _mentions_sheet_profile(message: str) -> bool:
+    return any(
+        phrase in message
+        for phrase in (
+            "profile la feuille",
+            "profil de la feuille",
+            "profil du fichier",
+            "statistiques de la feuille",
+        )
+    )
+
+
+def _mentions_ledger_schema(message: str) -> bool:
+    return any(
+        phrase in message
+        for phrase in (
+            "classifie le schema",
+            "schema du grand livre",
+            "structure du grand livre",
+            "mapping des colonnes",
         )
     )
 
@@ -182,9 +402,7 @@ def _global_excel_analysis_tool_calls(
         ),
     )
     return tuple(
-        tool_call
-        for tool_call in tool_calls
-        if tool_call.name in request.allowed_tools
+        tool_call for tool_call in tool_calls if tool_call.name in request.allowed_tools
     )
 
 
@@ -296,12 +514,21 @@ def _mentions_tax_candidates(message: str) -> bool:
         for keyword in (
             "candidat fiscal",
             "candidats fiscaux",
-            "candidat ras",
-            "candidats ras",
-            "retenue",
-            "ras",
             "tva",
             "fiscal",
+        )
+    )
+
+
+def _mentions_ras_candidates(message: str) -> bool:
+    return any(
+        keyword in message
+        for keyword in (
+            "candidat ras",
+            "candidats ras",
+            "retenue a la source",
+            "retenues a la source",
+            "ras",
         )
     )
 
