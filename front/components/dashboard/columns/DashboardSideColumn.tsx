@@ -11,10 +11,10 @@ export default function DashboardSideColumn({
   return (
     <aside
       className={[
-        "custom-scrollbar min-h-0 overflow-y-auto bg-white px-6 py-6",
+        "custom-scrollbar min-h-0 overflow-y-auto bg-white px-6",
         side === "left"
-          ? "border-b border-black/[0.06] lg:border-b-0 lg:border-r"
-          : "border-t border-black/[0.06] lg:border-l lg:border-t-0",
+          ? "border-b border-black/[0.06] py-6 lg:border-b-0 lg:border-r"
+          : "border-t border-black/[0.06] pb-6 pt-3 lg:border-l lg:border-t-0",
       ].join(" ")}
     >
       {side === "left" && <AISidebar />}

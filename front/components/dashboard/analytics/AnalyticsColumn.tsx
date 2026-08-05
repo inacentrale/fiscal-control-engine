@@ -8,19 +8,35 @@ import {
   getAgentSessionContext,
   listAgentFiles,
 } from "@/api/agent/sidebar";
-import type { AgentDashboardChart } from "@/api/agent/types";
+import { extractRasCandidateDetectionResult } from "@/api/agent/rasCandidateDetection";
+import { runRasCandidateDetection } from "@/api/agent/runAgentAnalysis";
+import type {
+  AgentDashboardChart,
+  AgentFileDashboard,
+  AgentSidebarFile,
+  RasCandidateDetectionResult,
+} from "@/api/agent/types";
+import { Maximize24Icon } from "@/public/assets/icons/AnalyticsIcons";
 import useAgentWorkspaceStore from "@/store/agentWorkspaceStore";
 
 import AnalyticsChartCard from "./AnalyticsChartCard";
 import AnalyticsKpiGrid from "./AnalyticsKpiGrid";
+import AnalyticsModeSwitcher, {
+  type AnalyticsMode,
+} from "./AnalyticsModeSwitcher";
 import AnalyticsQualityDetails from "./AnalyticsQualityDetails";
 import AnalyticsReveal from "./AnalyticsReveal";
 import AnalyticsViewTabs from "./AnalyticsViewTabs";
+import WithholdingAnalyticsPanel, {
+  WithholdingExpandedModal,
+} from "./WithholdingAnalyticsPanel";
 import { analyticsViews, type AnalyticsView } from "./analyticsViews";
 import { compactInsight, findChart } from "./analyticsUtils";
 
 export default function AnalyticsColumn() {
+  const [activeMode, setActiveMode] = useState<AnalyticsMode>("ledger");
   const [activeView, setActiveView] = useState<AnalyticsView>("general");
+  const [isExpanded, setIsExpanded] = useState(false);
   const filesQuery = useQuery({
     queryKey: agentSidebarQueryKeys.files,
     queryFn: () => listAgentFiles(20),
@@ -43,6 +59,34 @@ export default function AnalyticsColumn() {
   const primaryChart = dashboard ? findChart(dashboard, "top_accounts_by_amount") : null;
   const activeViewConfig =
     analyticsViews.find((view) => view.id === activeView) ?? analyticsViews[0];
+  const rasCandidatesQuery = useQuery({
+    queryKey: [
+      "agent",
+      "ras-candidates",
+      activeSessionId,
+      activeFile?.file_id,
+      dashboard?.sheet_name,
+    ],
+    queryFn: async () => {
+      const response = await runRasCandidateDetection(
+        activeSessionId || "",
+        activeFile?.file_id || "",
+        dashboard?.sheet_name || ""
+      );
+      return extractRasCandidateDetectionResult(response);
+    },
+    enabled: Boolean(
+      activeMode === "withholding" &&
+        activeSessionId &&
+        activeFile?.file_id &&
+        dashboard?.sheet_name
+    ) || Boolean(
+      isExpanded &&
+        activeSessionId &&
+        activeFile?.file_id &&
+        dashboard?.sheet_name
+    ),
+  });
   const secondaryCharts = useMemo(
     () =>
       dashboard
@@ -67,11 +111,132 @@ export default function AnalyticsColumn() {
 
   return (
     <div className="flex min-h-full flex-col gap-4 text-[#102734]">
+      <AnalyticsReveal>
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <AnalyticsModeSwitcher
+              activeMode={activeMode}
+              onChange={setActiveMode}
+            />
+          </div>
+          <button
+            aria-label="Agrandir la vue analytique"
+            className="grid size-[54px] shrink-0 place-items-center rounded-[22px] bg-white text-[#40515C] shadow-[0_14px_34px_rgba(64,81,92,0.08)] ring-1 ring-[#e5eef2] transition hover:bg-[#f5f8fa] hover:text-[#102734]"
+            onClick={() => setIsExpanded(true)}
+            type="button"
+          >
+            <Maximize24Icon className="size-5" />
+          </button>
+        </div>
+      </AnalyticsReveal>
+
+      {activeMode === "withholding" ? (
+        <WithholdingAnalyticsPanel
+          state={toWithholdingState(
+            rasCandidatesQuery.isLoading,
+            rasCandidatesQuery.isError,
+            rasCandidatesQuery.data,
+            rasCandidatesQuery.error
+          )}
+        />
+      ) : (
+        <LedgerAnalyticsContent
+          activeFile={activeFile}
+          activeView={activeView}
+          dashboard={dashboard}
+          isReady={contextQuery.data?.state === "ready"}
+          onViewChange={setActiveView}
+          primaryChart={primaryChart}
+          secondaryCharts={secondaryCharts}
+        />
+      )}
+
+      {isExpanded && rasCandidatesQuery.data && (
+        <ExpandedAnalyticsModalBridge
+          activeMode={activeMode}
+          onClose={() => setIsExpanded(false)}
+          onModeChange={setActiveMode}
+          result={rasCandidatesQuery.data}
+        />
+      )}
+    </div>
+  );
+}
+
+function ExpandedAnalyticsModalBridge({
+  activeMode,
+  onClose,
+  onModeChange,
+  result,
+}: {
+  activeMode: AnalyticsMode;
+  onClose: () => void;
+  onModeChange: (mode: AnalyticsMode) => void;
+  result: RasCandidateDetectionResult;
+}) {
+  const signalItems = topEntries(result.signalCounts, 4);
+  const missingFactItems = topEntries(result.missingFactCounts, 3);
+  const periods = result.rasReview?.periods ?? [];
+  const amount = primaryAmount(result.candidateAmountsByCurrency);
+  const candidateRate =
+    result.evaluatedPieceCount > 0
+      ? result.candidatePieceCount / result.evaluatedPieceCount
+      : 0;
+
+  return (
+    <WithholdingExpandedModal
+      activeMode={activeMode}
+      amount={amount}
+      candidateRate={candidateRate}
+      missingFactItems={missingFactItems}
+      onClose={onClose}
+      onModeChange={onModeChange}
+      periods={periods}
+      result={result}
+      signalItems={signalItems}
+    />
+  );
+}
+
+function topEntries(record: Record<string, number>, limit: number) {
+  return Object.entries(record)
+    .filter(([, value]) => value > 0)
+    .sort(([, left], [, right]) => right - left)
+    .slice(0, limit)
+    .map(([label, value]) => ({ label, value }));
+}
+
+function primaryAmount(record: Record<string, string>) {
+  const [currency, rawValue] = Object.entries(record)[0] ?? [];
+  const value = Number(rawValue);
+  if (!currency || !Number.isFinite(value)) return null;
+  return { currency, value };
+}
+
+function LedgerAnalyticsContent({
+  activeFile,
+  activeView,
+  dashboard,
+  isReady,
+  onViewChange,
+  primaryChart,
+  secondaryCharts,
+}: {
+  activeFile: AgentSidebarFile;
+  activeView: AnalyticsView;
+  dashboard: AgentFileDashboard;
+  isReady: boolean;
+  onViewChange: (view: AnalyticsView) => void;
+  primaryChart: AgentDashboardChart | null;
+  secondaryCharts: AgentDashboardChart[];
+}) {
+  return (
+    <>
       <header className="space-y-1">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-[16px] font-semibold">Analyse du fichier</h2>
           <span className="rounded-full bg-[#eef6f2] px-2.5 py-1 text-[11px] font-semibold text-[#168766]">
-            {contextQuery.data?.state === "ready" ? "Prêt" : "En attente"}
+            {isReady ? "Prêt" : "En attente"}
           </span>
         </div>
         <p className="truncate text-[12px] font-medium text-[#7d8d97]">
@@ -99,7 +264,7 @@ export default function AnalyticsColumn() {
       )}
 
       <AnalyticsReveal delay={0.08}>
-        <AnalyticsViewTabs activeView={activeView} onChange={setActiveView} />
+        <AnalyticsViewTabs activeView={activeView} onChange={onViewChange} />
       </AnalyticsReveal>
 
       <div className="space-y-3 pb-4">
@@ -109,8 +274,31 @@ export default function AnalyticsColumn() {
           </AnalyticsReveal>
         ))}
       </div>
-    </div>
+    </>
   );
+}
+
+function toWithholdingState(
+  isLoading: boolean,
+  isError: boolean,
+  result: RasCandidateDetectionResult | null | undefined,
+  error: Error | null
+):
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "empty" }
+  | { status: "ready"; result: RasCandidateDetectionResult } {
+  if (isLoading) return { status: "loading" };
+  if (isError) {
+    return {
+      status: "error",
+      message:
+        error?.message ||
+        "La détection des candidats RAS ne peut pas être chargée.",
+    };
+  }
+  if (!result) return { status: "empty" };
+  return { status: "ready", result };
 }
 
 function AnalyticsSkeleton() {

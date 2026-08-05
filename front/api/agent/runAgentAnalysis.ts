@@ -22,6 +22,20 @@ export const runAgentPreAnalysis = (
     sheet_name: sheetName,
   });
 
+export const runRasCandidateDetection = (
+  sessionId: string,
+  fileId: string,
+  sheetName: string
+): Promise<AgentRunResponse> =>
+  postData<AgentRunResponse>("agent/runs", {
+    message: "Détecte les candidats RAS du Grand Livre avec l'outil detect_ras_candidates.",
+    session_id: sessionId,
+    file_id: fileId,
+    allowed_tools: ["detect_ras_candidates"],
+    requested_tool: "detect_ras_candidates",
+    sheet_name: sheetName,
+  });
+
 export const runAgentChat = ({
   message,
   sessionId,

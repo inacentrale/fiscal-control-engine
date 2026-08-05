@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -82,6 +82,30 @@ class Settings(BaseSettings):
     agent_file_ttl_seconds: int = 86_400
     agent_file_max_upload_bytes: int = 20_000_000
     database_url: str | None = None
+
+    @field_validator(
+        "ras_fact_context_signing_key",
+        "llm_openai_compatible_api_key",
+        "llm_gemini_api_key",
+        "llm_groq_api_key",
+        mode="before",
+    )
+    @classmethod
+    def _empty_secret_as_none(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
+
+    @field_validator(
+        "ras_ledger_account_mapping_path",
+        "ras_default_company_code",
+        mode="before",
+    )
+    @classmethod
+    def _empty_optional_string_as_none(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
 
     model_config = SettingsConfigDict(
         env_file=".env",

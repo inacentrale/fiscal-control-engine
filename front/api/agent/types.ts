@@ -196,6 +196,36 @@ export type LedgerQueryResult = {
   signConvention: string | null;
 };
 
+export type RasCandidateDetectionResult = {
+  sheetName: string;
+  rowCount: number;
+  evaluatedPieceCount: number;
+  candidatePieceCount: number;
+  excludedPieceCount: number;
+  rejectedRowCount: number;
+  statusCounts: Record<string, number>;
+  signalCounts: Record<string, number>;
+  operationHintCounts: Record<string, number>;
+  candidateAmountsByCurrency: Record<string, string>;
+  missingFactCounts: Record<string, number>;
+  issueCounts: Record<string, number>;
+  rasReview: RasReviewSummary | null;
+  decisionStatus: string;
+  semanticModel: Record<string, unknown> | null;
+};
+
+export type RasReviewPeriod = {
+  period: string;
+  candidateEntryCount: number;
+  candidateAmount: number;
+  cumulativeCandidateAmount: number;
+  currency: string | null;
+};
+
+export type RasReviewSummary = {
+  periods: RasReviewPeriod[];
+};
+
 export type AgentConversationMessage =
   | {
       id: string;

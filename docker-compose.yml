@@ -32,7 +32,7 @@ services:
       - ./api:/app
       - ./docs:/workspace/docs:ro
       - ./.local:/workspace/.local
-    command: uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 volumes:
   postgres_data:
