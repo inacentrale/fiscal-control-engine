@@ -433,10 +433,17 @@ def _emit_fallback_if_needed(
 def _deterministic_file_intent_tool_calls(
     request: AgentRunRequest,
 ) -> tuple[ToolCall, ...]:
-    if request.file_path is None or "analyze_ledger" not in request.allowed_tools:
+    if request.file_path is None:
         return ()
     message = _normalized_user_message(request.user_message)
-    if not _asks_for_file_explanation(message):
+    if _asks_for_column_roles(message):
+        if "classify_ledger_schema" in request.allowed_tools:
+            return (ToolCall(name="classify_ledger_schema", arguments={}),)
+        if "get_columns" in request.allowed_tools:
+            return (ToolCall(name="get_columns", arguments={}),)
+    if "analyze_ledger" not in request.allowed_tools or not _asks_for_file_explanation(
+        message,
+    ):
         return ()
 
     requested_tools: tuple[tuple[str, dict[str, object]], ...] = (
@@ -450,6 +457,23 @@ def _deterministic_file_intent_tool_calls(
         ToolCall(name=tool_name, arguments=arguments)
         for tool_name, arguments in requested_tools
         if tool_name in request.allowed_tools
+    )
+
+
+def _asks_for_column_roles(message: str) -> bool:
+    column_terms = ("colonne", "colonnes", "champ", "champs")
+    role_terms = (
+        "role",
+        "roles",
+        "sens",
+        "mapping",
+        "detecte",
+        "detectees",
+        "identifie",
+        "identifiees",
+    )
+    return any(term in message for term in column_terms) and any(
+        term in message for term in role_terms
     )
 
 
@@ -619,6 +643,8 @@ def _rows_columns_summary(prefix: str, output: dict[str, object]) -> str:
 
 def _deterministic_tool_answer(tool_result: ToolExecutionResult) -> str:
     summary = normalize_answer_summary(_tool_result_summary(tool_result))
+    if tool_result.tool_name == "classify_ledger_schema":
+        return _ledger_schema_answer(tool_result)
     if tool_result.tool_name != "analyze_ledger":
         return summary
 
@@ -642,6 +668,9 @@ def _deterministic_tool_results_answer(
     secure_answer = _secure_deterministic_answer(tool_results)
     if secure_answer is not None:
         return secure_answer
+    file_overview_answer = _file_overview_answer(tool_results)
+    if file_overview_answer is not None:
+        return file_overview_answer
     balance_answer = _balance_reconciliation_answer(tool_results)
     if balance_answer is not None:
         return balance_answer
@@ -666,6 +695,227 @@ def _deterministic_tool_results_answer(
             if tool_result.tool_name == tool_name and tool_result.ok:
                 return _deterministic_tool_answer(tool_result)
     return "Les contrôles déterministes sont terminés."
+
+
+def _file_overview_answer(
+    tool_results: tuple[ToolExecutionResult, ...],
+) -> str | None:
+    analysis = _successful_tool_result(tool_results, "analyze_ledger")
+    if analysis is None:
+        return None
+
+    metrics = _successful_tool_result(tool_results, "calculate_ledger_metrics")
+    aggregation = _successful_tool_result(tool_results, "aggregate_ledger")
+    quality = _successful_tool_result(tool_results, "detect_data_quality_issues")
+    tax_candidates = _successful_tool_result(tool_results, "detect_tax_candidates")
+    if not any((metrics, aggregation, quality, tax_candidates)):
+        return None
+
+    row_count = analysis.output.get("row_count", 0)
+    column_count = analysis.output.get("column_count", 0)
+    sheet_name = analysis.output.get("sheet_name") or "feuille active"
+    lines = [
+        "**Vue synthétique du Grand Livre**",
+        "",
+        f"- Feuille : {sheet_name}",
+        f"- Volume : {_plain_int(row_count)} écriture(s), "
+        f"{_plain_int(column_count)} colonne(s)",
+    ]
+    lines.extend(_file_metric_lines(metrics))
+    lines.extend(_file_top_account_lines(aggregation))
+    lines.extend(_file_quality_lines(quality))
+    lines.extend(_file_tax_candidate_lines(tax_candidates))
+    return "\n".join(lines)
+
+
+def _ledger_schema_answer(tool_result: ToolExecutionResult) -> str:
+    schema = tool_result.output.get("schema")
+    columns = tool_result.output.get("columns")
+    if not isinstance(schema, dict) or not isinstance(columns, list):
+        return normalize_answer_summary(_tool_result_summary(tool_result))
+
+    mappings_by_column = _ledger_mappings_by_column(schema.get("mappings"))
+    lines = [
+        "**Colonnes détectées et rôles probables**",
+        "",
+        f"- Feuille : {tool_result.output.get('sheet_name') or 'feuille active'}",
+        f"- Colonnes : {_plain_int(tool_result.output.get('column_count'))}",
+        "- Schéma utilisable : "
+        f"{'oui' if schema.get('is_usable') is True else 'à confirmer'}",
+        "",
+        "| # | Colonne | Rôle | Type | Complétude |",
+        "|---:|---|---|---|---:|",
+    ]
+    for raw_column in columns:
+        if not isinstance(raw_column, dict):
+            continue
+        column_name = str(raw_column.get("name") or "Sans nom")
+        mapping = mappings_by_column.get(column_name)
+        role = (
+            _ledger_role_label(mapping.get("canonical_field"))
+            if mapping
+            else "Non mappée"
+        )
+        if mapping and mapping.get("status") == "ambiguous":
+            role = f"{role} (à confirmer)"
+        lines.append(
+            "| "
+            f"{_plain_int(raw_column.get('position')) + 1} | "
+            f"{_markdown_cell(column_name)} | "
+            f"{_markdown_cell(role)} | "
+            f"{_markdown_cell(str(raw_column.get('detected_type') or 'inconnu'))} | "
+            f"{_column_completeness(raw_column)} |"
+        )
+    return "\n".join(lines)
+
+
+def _ledger_mappings_by_column(raw_mappings: object) -> dict[str, dict[str, object]]:
+    if not isinstance(raw_mappings, list):
+        return {}
+    mappings: dict[str, dict[str, object]] = {}
+    for raw_mapping in raw_mappings:
+        if not isinstance(raw_mapping, dict):
+            continue
+        source_column = raw_mapping.get("source_column")
+        if isinstance(source_column, str):
+            mappings[source_column] = raw_mapping
+    return mappings
+
+
+def _ledger_role_label(raw_role: object) -> str:
+    role_labels = {
+        "account": "Compte comptable",
+        "amount": "Montant",
+        "currency": "Devise",
+        "text": "Libellé",
+        "vendor": "Fournisseur",
+        "customer": "Client",
+        "tax_code": "Code TVA",
+        "period": "Période",
+        "fiscal_year": "Exercice",
+        "document_type": "Type de pièce",
+        "posting_key": "Clé de comptabilisation",
+    }
+    return role_labels.get(str(raw_role), str(raw_role or "Non mappée"))
+
+
+def _column_completeness(raw_column: dict[str, object]) -> str:
+    missing_ratio = raw_column.get("missing_ratio")
+    if isinstance(missing_ratio, int | float):
+        completeness = max(0.0, min(1.0, 1.0 - float(missing_ratio)))
+        return f"{completeness:.0%}"
+    non_empty_count = raw_column.get("non_empty_count")
+    return str(_plain_int(non_empty_count))
+
+
+def _successful_tool_result(
+    tool_results: tuple[ToolExecutionResult, ...],
+    tool_name: str,
+) -> ToolExecutionResult | None:
+    return next(
+        (
+            result
+            for result in reversed(tool_results)
+            if result.tool_name == tool_name and result.ok
+        ),
+        None,
+    )
+
+
+def _file_metric_lines(tool_result: ToolExecutionResult | None) -> list[str]:
+    if tool_result is None:
+        return []
+    metrics = tool_result.output.get("metrics")
+    if not isinstance(metrics, dict):
+        return []
+    currency = _single_currency(tool_result.output.get("metrics_by_currency"))
+    return [
+        f"- Solde global : {_amount_value(metrics, 'sum', currency)}",
+        f"- Montant moyen : {_amount_value(metrics, 'average', currency)}",
+        f"- Min / max : {_amount_value(metrics, 'min', currency)} / "
+        f"{_amount_value(metrics, 'max', currency)}",
+    ]
+
+
+def _file_top_account_lines(tool_result: ToolExecutionResult | None) -> list[str]:
+    if tool_result is None:
+        return []
+    aggregations = tool_result.output.get("aggregations")
+    if not isinstance(aggregations, dict):
+        return []
+    account_aggregation = aggregations.get("account")
+    if not isinstance(account_aggregation, dict):
+        return []
+    groups = account_aggregation.get("groups")
+    if not isinstance(groups, list) or not groups:
+        return []
+    lines = ["", "**Comptes principaux**"]
+    for raw_group in groups[:5]:
+        if not isinstance(raw_group, dict):
+            continue
+        currency = raw_group.get("currency")
+        balance = _amount_value(
+            raw_group,
+            "balance",
+            str(currency) if currency else None,
+        )
+        lines.append(
+            f"- {raw_group.get('key', 'Sans compte')} : "
+            f"{balance} "
+            f"({_plain_int(raw_group.get('entry_count'))} écriture(s))"
+        )
+    return lines
+
+
+def _file_quality_lines(tool_result: ToolExecutionResult | None) -> list[str]:
+    if tool_result is None:
+        return []
+    issue_count = tool_result.output.get("issue_count", 0)
+    issues = tool_result.output.get("issues")
+    lines = [
+        "",
+        "**Qualité des données**",
+        f"- Points détectés : {_plain_int(issue_count)}",
+    ]
+    if isinstance(issues, list):
+        for raw_issue in issues[:3]:
+            if not isinstance(raw_issue, dict):
+                continue
+            source_column = raw_issue.get("source_column") or "colonne non précisée"
+            message = raw_issue.get("message") or raw_issue.get("issue_type")
+            lines.append(f"- {source_column} : {message}")
+    return lines
+
+
+def _file_tax_candidate_lines(tool_result: ToolExecutionResult | None) -> list[str]:
+    if tool_result is None:
+        return []
+    candidates = tool_result.output.get("candidates")
+    if not isinstance(candidates, list):
+        return []
+    lines = [
+        "",
+        "**Signaux fiscaux à revoir**",
+        f"- Catégories candidates : {_plain_int(len(candidates))}",
+    ]
+    for raw_candidate in candidates[:3]:
+        if not isinstance(raw_candidate, dict):
+            continue
+        currency = _single_currency(raw_candidate.get("amounts_by_currency"))
+        lines.append(
+            f"- {raw_candidate.get('category', 'Catégorie non précisée')} : "
+            f"{_plain_int(raw_candidate.get('entry_count'))} écriture(s), "
+            f"{_amount_value(raw_candidate, 'amount_sum', currency)}"
+        )
+    lines.append("- Aucune décision fiscale automatique : revue humaine requise.")
+    return lines
+
+
+def _single_currency(raw_by_currency: object) -> str | None:
+    if not isinstance(raw_by_currency, dict) or len(raw_by_currency) != 1:
+        return None
+    currency = next(iter(raw_by_currency))
+    return str(currency) if currency else None
 
 
 def _secure_deterministic_answer(
@@ -909,10 +1159,18 @@ def _final_answer_from_model_or_tools(
 ) -> str:
     if (
         _is_controlled_internal_response(final_response)
+        or _is_truncated_model_response(final_response)
         or not final_response.text.strip()
     ):
         return _deterministic_tool_results_answer(tool_results)
     return answer_policy.apply(final_response.text).answer
+
+
+def _is_truncated_model_response(response: ModelResponse) -> bool:
+    finish_reason = response.finish_reason.casefold()
+    return finish_reason in {"length", "max_tokens", "max_output_tokens"} or (
+        "max" in finish_reason and "token" in finish_reason
+    )
 
 
 def _tax_rag_answer(

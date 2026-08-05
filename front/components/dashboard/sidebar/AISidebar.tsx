@@ -16,6 +16,7 @@ import { AddSquareIcon, CategoryIcon } from "@/public/assets/icons/SideBarIcons"
 
 import AISidebarConversationItem from "./AISidebarConversationItem";
 import AISidebarModal, { type AISidebarModalMode } from "./AISidebarModal";
+import AISidebarProfile from "./AISidebarProfile";
 import type { SidebarConversation, SidebarFile } from "./aiSidebarData";
 
 export default function AISidebar() {
@@ -47,90 +48,94 @@ export default function AISidebar() {
 
   return (
     <>
-      <div className="flex min-h-full flex-col gap-7 text-[#102734]">
-        <div className="space-y-1.5">
-          <button
-            type="button"
-            onClick={startNewChat}
-            className="flex h-11 w-full cursor-pointer items-center gap-3 rounded-[17px] bg-[#f5f8fa] px-3.5 text-left text-[14px] font-medium text-[#102734] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] transition hover:bg-[#edf4f7]"
-          >
-            <AddSquareIcon className="size-[18px] shrink-0 text-[#40515c]" />
-            Nouveau chat
-          </button>
-          <button
-            type="button"
-            onClick={() => setModalMode("files")}
-            className="flex h-10 w-full cursor-pointer items-center gap-3 rounded-[12px] px-3.5 text-left text-[14px] font-medium text-[#203743] transition hover:bg-[#f7f9fa]"
-          >
-            <CategoryIcon className="size-[18px] shrink-0 text-[#667781]" />
-            Fichiers
-          </button>
-          <button
-            type="button"
-            onClick={() => setModalMode("search")}
-            className="flex h-10 w-full cursor-pointer items-center gap-3 rounded-[12px] px-3.5 text-left text-[14px] font-medium text-[#203743] transition hover:bg-[#f7f9fa]"
-          >
-            <SearchZoomIcon className="size-[18px] shrink-0 text-[#667781]" />
-            Rechercher
-          </button>
-        </div>
-
-        <section className="space-y-2">
-          <button
-            type="button"
-            onClick={() => setIsRecentExpanded((current) => !current)}
-            className="flex h-8 w-full cursor-pointer items-center justify-between rounded-[10px] px-3 text-left text-[12px] font-semibold text-[#31424c] transition hover:bg-[#f7f9fa]"
-          >
-            <span>Récents</span>
-            <ChevronRightIcon
-              className={[
-                "size-3.5 text-[#8a98a2] transition-transform",
-                isRecentExpanded ? "rotate-90" : "",
-              ].join(" ")}
-            />
-          </button>
-          <div className="space-y-1">
-            {conversationsQuery.isLoading &&
-              Array.from({ length: 3 }).map((_, index) => (
-                <AISidebarSkeletonRow key={index} />
-              ))}
-            {!conversationsQuery.isLoading &&
-              visibleConversations.map((conversation) => (
-                <AISidebarConversationItem
-                  key={conversation.id}
-                  conversation={conversation}
-                  onSelect={(selectedConversation) =>
-                    selectConversation({
-                      runId: selectedConversation.id,
-                      sessionId: selectedConversation.sessionId,
-                      fileId: selectedConversation.fileId,
-                    })
-                  }
-                />
-              ))}
-            {!conversationsQuery.isLoading &&
-              !conversationsQuery.isError &&
-              sidebarConversations.length === 0 && (
-                <p className="px-3 py-2 text-[12px] font-medium text-[#8a98a2]">
-                  Aucun échange enregistré.
-                </p>
-              )}
-            {conversationsQuery.isError && (
-              <p className="px-3 py-2 text-[12px] text-red-600">
-                Historique indisponible.
-              </p>
-            )}
-          </div>
-          {!conversationsQuery.isLoading && !isRecentExpanded && hiddenCount > 0 && (
+      <div className="flex min-h-full flex-col justify-between gap-7 text-[#102734]">
+        <div className="min-h-0 space-y-7">
+          <div className="space-y-1.5">
             <button
               type="button"
-              onClick={() => setIsRecentExpanded(true)}
-              className="h-8 w-full cursor-pointer rounded-[10px] px-3 text-left text-[12px] font-medium text-[#8a98a2] transition hover:bg-[#f7f9fa]"
+              onClick={startNewChat}
+              className="flex h-11 w-full cursor-pointer items-center gap-3 rounded-[17px] bg-[#f5f8fa] px-3.5 text-left text-[14px] font-medium text-[#102734] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] transition hover:bg-[#edf4f7]"
             >
-              Afficher {hiddenCount} ancien{hiddenCount > 1 ? "s" : ""}
+              <AddSquareIcon className="size-[18px] shrink-0 text-[#40515c]" />
+              Nouveau chat
             </button>
-          )}
-        </section>
+            <button
+              type="button"
+              onClick={() => setModalMode("files")}
+              className="flex h-10 w-full cursor-pointer items-center gap-3 rounded-[12px] px-3.5 text-left text-[14px] font-medium text-[#203743] transition hover:bg-[#f7f9fa]"
+            >
+              <CategoryIcon className="size-[18px] shrink-0 text-[#667781]" />
+              Fichiers
+            </button>
+            <button
+              type="button"
+              onClick={() => setModalMode("search")}
+              className="flex h-10 w-full cursor-pointer items-center gap-3 rounded-[12px] px-3.5 text-left text-[14px] font-medium text-[#203743] transition hover:bg-[#f7f9fa]"
+            >
+              <SearchZoomIcon className="size-[18px] shrink-0 text-[#667781]" />
+              Rechercher
+            </button>
+          </div>
+
+          <section className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setIsRecentExpanded((current) => !current)}
+              className="flex h-8 w-full cursor-pointer items-center justify-between rounded-[10px] px-3 text-left text-[12px] font-semibold text-[#31424c] transition hover:bg-[#f7f9fa]"
+            >
+              <span>Récents</span>
+              <ChevronRightIcon
+                className={[
+                  "size-3.5 text-[#8a98a2] transition-transform",
+                  isRecentExpanded ? "rotate-90" : "",
+                ].join(" ")}
+              />
+            </button>
+            <div className="space-y-1">
+              {conversationsQuery.isLoading &&
+                Array.from({ length: 3 }).map((_, index) => (
+                  <AISidebarSkeletonRow key={index} />
+                ))}
+              {!conversationsQuery.isLoading &&
+                visibleConversations.map((conversation) => (
+                  <AISidebarConversationItem
+                    key={conversation.id}
+                    conversation={conversation}
+                    onSelect={(selectedConversation) =>
+                      selectConversation({
+                        runId: selectedConversation.id,
+                        sessionId: selectedConversation.sessionId,
+                        fileId: selectedConversation.fileId,
+                      })
+                    }
+                  />
+                ))}
+              {!conversationsQuery.isLoading &&
+                !conversationsQuery.isError &&
+                sidebarConversations.length === 0 && (
+                  <p className="px-3 py-2 text-[12px] font-medium text-[#8a98a2]">
+                    Aucun échange enregistré.
+                  </p>
+                )}
+              {conversationsQuery.isError && (
+                <p className="px-3 py-2 text-[12px] text-red-600">
+                  Historique indisponible.
+                </p>
+              )}
+            </div>
+            {!conversationsQuery.isLoading && !isRecentExpanded && hiddenCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setIsRecentExpanded(true)}
+                className="h-8 w-full cursor-pointer rounded-[10px] px-3 text-left text-[12px] font-medium text-[#8a98a2] transition hover:bg-[#f7f9fa]"
+              >
+                Afficher {hiddenCount} ancien{hiddenCount > 1 ? "s" : ""}
+              </button>
+            )}
+          </section>
+        </div>
+
+        <AISidebarProfile />
       </div>
       {modalMode && (
         <AISidebarModal

@@ -110,6 +110,9 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 - [x] Ajouter les tests unitaires de trace agent: ordre des etapes, erreurs tool, fallback modele, timeout.
 - [x] Ajouter une synthese visible des pre-traitements: fichier verifie, controles lances, outil choisi, statut de chaque etape, jamais les pensees internes du modele.
 - [x] Ajouter les libelles et resumes utilisateur des tools analytiques dans les evenements de streaming.
+- [x] Router deterministement les demandes generales `Explique-moi ce fichier Grand Livre` vers les analyses internes utiles, sans dependre du choix de tool par le LLM.
+- [x] Router deterministement les questions `colonnes detectees et role` vers `classify_ledger_schema`, avec reponse Markdown stable si le LLM fallback.
+- [x] Ajouter un fallback deterministe de synthese Grand Livre quand un modele externe coupe sa reponse par limite de tokens.
 
 ## LLM / Modeles Externes
 

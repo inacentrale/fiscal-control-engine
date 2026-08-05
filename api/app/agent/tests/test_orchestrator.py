@@ -1160,6 +1160,85 @@ def test_orchestrator_explains_file_with_deterministic_answer_when_model_is_inte
     assert model.calls == 1
 
 
+def test_orchestrator_uses_deterministic_file_overview_when_model_is_truncated(
+    tmp_path: Path,
+) -> None:
+    workbook_path = write_minified_grand_livre(tmp_path)
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text="Ce fichier contient des comptes principaux dont",
+                provider_name="gemini",
+                model_name="gemini-test",
+                finish_reason="MAX_TOKENS",
+                tool_calls=(),
+            ),
+        ),
+    )
+    orchestrator = _create_orchestrator(tmp_path, model)
+
+    result = orchestrator.run(
+        AgentRunRequest(
+            user_message="Explique-moi ce fichier Grand Livre.",
+            file_path=workbook_path,
+            sheet_name="Grand Livre",
+            allowed_tools=(
+                "analyze_ledger",
+                "calculate_ledger_metrics",
+                "aggregate_ledger",
+                "detect_data_quality_issues",
+                "detect_tax_candidates",
+            ),
+        ),
+    )
+
+    assert result.answer.startswith("**Vue synthétique du Grand Livre**")
+    assert "Ce fichier contient des comptes principaux dont" not in result.answer
+    assert "Comptes principaux" in result.answer
+    assert "Qualité des données" in result.answer
+    assert "Signaux fiscaux à revoir" in result.answer
+    assert model.calls == 1
+
+
+def test_orchestrator_routes_column_role_question_to_schema_classification(
+    tmp_path: Path,
+) -> None:
+    workbook_path = write_minified_grand_livre(tmp_path)
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text=(
+                    "Les contrôles déterministes sont disponibles. "
+                    "Ajoutez un fichier Excel pour lancer une analyse structurée."
+                ),
+                provider_name="internal",
+                model_name="controlled-response",
+                finish_reason="controlled_response",
+                tool_calls=(),
+            ),
+        ),
+    )
+    orchestrator = _create_orchestrator(tmp_path, model)
+
+    result = orchestrator.run(
+        AgentRunRequest(
+            user_message="Quelles sont les colonnes détectées et leur rôle ?",
+            file_path=workbook_path,
+            sheet_name="Grand Livre",
+            allowed_tools=("get_columns", "classify_ledger_schema"),
+        ),
+    )
+
+    assert [tool_result.tool_name for tool_result in result.tool_results] == [
+        "classify_ledger_schema",
+    ]
+    assert result.answer.startswith("**Colonnes détectées et rôles probables**")
+    assert "| # | Colonne | Rôle | Type | Complétude |" in result.answer
+    assert "Compte comptable" in result.answer
+    assert "Montant" in result.answer
+    assert model.calls == 1
+
+
 def test_orchestrator_refuses_disallowed_tool_call(tmp_path: Path) -> None:
     workbook_path = write_minified_grand_livre(tmp_path)
     model = FakeModelProvider(

@@ -284,6 +284,12 @@ export const useAgentFileUpload = () => {
       },
     ]);
 
+    if (submittedFile) {
+      setAttachedFile(null);
+      setPreAnalysis(null);
+      setPreAnalysisError(null);
+    }
+
     runChatWithStream({
       message: trimmedMessage,
       assistantMessageId,

@@ -4,12 +4,12 @@ import TopbarIconButton from "./TopbarIconButton";
 
 export default function TopbarSearch() {
   return (
-    <div className="hidden items-center gap-3 md:flex">
+    <div className="flex w-full min-w-0 items-center gap-3">
       <TopbarIconButton label="Rechercher">
         <SearchZoomIcon className="size-[20px]" />
       </TopbarIconButton>
 
-      <label className="block w-[250px] mt-1 cursor-text">
+      <label className="mt-1 block min-w-0 flex-1 cursor-text">
         <span className="sr-only">Recherche globale</span>
         <input
           type="search"
