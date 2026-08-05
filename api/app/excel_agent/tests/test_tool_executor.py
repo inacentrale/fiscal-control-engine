@@ -492,6 +492,42 @@ def test_executor_rejects_invalid_query_filter() -> None:
     assert result.error_code == "invalid_filter"
 
 
+def test_executor_normalizes_llm_query_filter_aliases_and_numeric_values() -> None:
+    docs_root = _docs_root()
+    workbook_path = docs_root / "GL_anonymise_2500.xlsx"
+    executor = _create_executor(docs_root)
+
+    result = executor.execute(
+        ToolCall(
+            name="query_ledger_entries",
+            arguments={
+                "file_path": str(workbook_path),
+                "sheet_name": "Sheet1",
+                "filters": {
+                    "account": "61365000",
+                    "compte": "61365000",
+                    "account_number": "61365000",
+                    "exercise": 2024,
+                    "exercice": 2024,
+                    "period": 12,
+                    "periode": 12,
+                },
+                "page": 1,
+                "page_size": 20,
+            },
+        ),
+    )
+
+    assert result.ok is True
+    assert result.output["filters"] == {
+        "account": "61365000",
+        "fiscal_year": "2024",
+        "period": "12",
+    }
+    assert result.output["total_matches"] == 8
+    assert len(result.output["entries"]) == 8
+
+
 def test_executor_calculates_ledger_metrics_without_cell_values() -> None:
     docs_root = _docs_root()
     workbook_path = docs_root / "GL_anonymise_2500.xlsx"
@@ -828,6 +864,56 @@ def test_executor_reconstructs_accounting_entries_without_returning_cells(
     assert "SYN-TIERS-001" not in serialized_output
 
 
+def test_executor_reconstructs_selected_anonymized_accounting_entry() -> None:
+    docs_root = _docs_root()
+    workbook_path = docs_root / "GL_anonymise_2500.xlsx"
+    executor = _create_executor(docs_root)
+
+    result = executor.execute(
+        ToolCall(
+            name="reconstruct_accounting_entry",
+            arguments={
+                "file_path": str(workbook_path),
+                "sheet_name": "Sheet1",
+                "entry_selector": {
+                    "piece": 2024002341,
+                    "exercice": 2024,
+                },
+            },
+        ),
+    )
+
+    assert result.ok is True
+    assert result.output["selector"] == {
+        "document_number": "2024002341",
+        "fiscal_year": 2024,
+    }
+    assert result.output["selected_entry_found"] is True
+    selected_entry = result.output["selected_entry"]
+    assert selected_entry["key"]["document_number"] == "2024002341"
+    assert selected_entry["key"]["fiscal_year"] == 2024
+    assert selected_entry["key"]["journal"] == "KR"
+    assert selected_entry["line_count"] == 2
+    assert selected_entry["is_balanced"] is False
+    assert selected_entry["balances"] == [
+        {
+            "currency": "XOF",
+            "debit_total": "533360",
+            "credit_total": "0",
+            "difference": "533360",
+            "used_line_count": 2,
+            "excluded_line_count": 0,
+        },
+    ]
+    assert {
+        (line["account"], line["posting_key"], line["amount"])
+        for line in selected_entry["lines"]
+    } == {
+        ("61365000", "40", "452000"),
+        ("34552001", "40", "81360"),
+    }
+
+
 def test_executor_finds_ras_counterpart_with_structured_safe_summary(
     tmp_path: Path,
 ) -> None:
@@ -951,6 +1037,30 @@ def test_executor_detects_ras_candidates_with_structured_safe_summary(
     assert "Honoraires synthetiques" not in serialized_output
 
 
+def test_executor_ignores_empty_ras_candidate_column_mapping(
+    tmp_path: Path,
+) -> None:
+    workbook_path = write_ras_audit_grand_livre(tmp_path)
+    executor = _create_executor(tmp_path)
+
+    result = executor.execute(
+        ToolCall(
+            name="detect_ras_candidates",
+            arguments={
+                "file_path": str(workbook_path),
+                "sheet_name": "GL",
+                "column_mapping": {},
+                "limit": 20,
+            },
+        ),
+    )
+
+    assert result.ok is True
+    assert result.output["evaluated_piece_count"] == 1
+    assert result.output["candidate_piece_count"] == 1
+    assert result.output["decision_status"] == "review_only_no_tax_conclusion"
+
+
 def test_real_anonymized_gl_resolves_vendor_customer_and_organization_mapping() -> None:
     docs_root = _docs_root()
     workbook_path = docs_root / "GL_anonymise_2500.xlsx"
@@ -979,6 +1089,10 @@ def test_real_anonymized_gl_resolves_vendor_customer_and_organization_mapping() 
     assert candidates.output["candidate_piece_count"] == 611
     assert candidates.output["rejected_row_count"] == 0
     assert counterparts.ok is True
+    assert counterparts.output["detected_candidate_piece_count"] == 611
+    assert counterparts.output["candidate_piece_count"] == 518
+    assert counterparts.output["counterpart_scope_exclusion_count"] == 93
+    assert "purement textuels" in counterparts.output["counterpart_scope_basis"]
     assert counterparts.output["status_counts"]["found_in_same_entry"] == 59
     assert counterparts.output["source_scope_complete"] is False
     assert counterparts.output["source_scope_blockers"] == [
@@ -987,6 +1101,37 @@ def test_real_anonymized_gl_resolves_vendor_customer_and_organization_mapping() 
         "posting_date_is_document_date_proxy",
     ]
     assert counterparts.output["status_counts"]["not_found_in_scope"] == 0
+
+
+def test_real_anonymized_gl_filters_ras_candidates_by_fiscal_year() -> None:
+    docs_root = _docs_root()
+    workbook_path = docs_root / "GL_anonymise_2500.xlsx"
+    executor = ExcelToolExecutor(
+        tools=ExcelAgentTools(allowed_root=docs_root),
+        registry=create_excel_tool_registry(),
+        ras_ledger_account_mappings=load_ras_ledger_account_mappings(
+            docs_root / "reference/ras-ledger-account-mapping.organization.csv"
+        ),
+    )
+
+    result = executor.execute(
+        ToolCall(
+            name="detect_ras_candidates",
+            arguments={
+                "file_path": str(workbook_path),
+                "sheet_name": "Sheet1",
+                "filters": {"exercice": 2024},
+            },
+        )
+    )
+
+    assert result.ok is True
+    assert result.output["source_row_count"] == 2500
+    assert result.output["row_count"] == 1237
+    assert result.output["filters"] == {"fiscal_year": "2024"}
+    assert result.output["evaluated_piece_count"] == 1095
+    assert result.output["candidate_piece_count"] == 296
+    assert result.output["candidate_amounts_by_currency"] == {"XOF": "59945000"}
 
 
 def test_explicit_default_company_code_can_attest_a_single_company_extract(
@@ -1606,6 +1751,7 @@ def test_executor_persists_multi_candidate_gl_inventory(tmp_path: Path) -> None:
     )
     assert report.ok is True
     assert report.output["case_count"] == batch.output["candidate_count"]
+    assert len(report.output["recorded_amount_summaries"]) >= 1
     assert all(
         detail["basis_is_complete"] is False for detail in report.output["details"]
     )

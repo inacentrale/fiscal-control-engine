@@ -55,6 +55,7 @@ class RasCounterpartToolReport:
     source_scope_blockers: tuple[str, ...]
     source_scope_policy_version: str
     report: RasCounterpartReport
+    detected_candidate_piece_count: int | None = None
 
 
 class RasCounterpartFinder:

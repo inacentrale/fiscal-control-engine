@@ -87,8 +87,8 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 - [x] Ajouter `calculate_ledger_metrics`: calculs explicites demandes par l'utilisateur (`somme`, `nombre`, `moyenne`, `min`, `max`, `top comptes`, repartitions), sans envoyer les lignes completes au LLM.
 - [x] Ajouter `detect_data_quality_issues`: detecter colonnes vides, valeurs manquantes critiques, montants incoherents, devises multiples, tiers absents, dates/periodes suspectes.
 - [x] Ajouter `detect_tax_candidates`: identifier les candidats TVA/RAS a partir des comptes, libelles, tiers, codes TVA et montants, sans decision fiscale finale.
-- [x] Ajouter un routeur deterministe de tools: choisir le ou les tools selon l'intention utilisateur avant appel LLM, puis tester chaque intention separement.
-- [x] Router une demande generale du type `Explique-moi cet Excel` vers une analyse globale multi-tools avant appel LLM.
+- [x] Historique: ajouter un routeur deterministe de tools, ensuite remplace par le flux LLM-first.
+- [x] Historique: router une demande generale du type `Explique-moi cet Excel`, ensuite remplace par selection LLM-first.
 - [x] Ajouter des tests de consistance tool par tool: fixture Excel anonymisee, sortie attendue stable, absence de donnees sensibles, limites de lignes respectees.
 - [x] Enrichir le dashboard Grand Livre avec les graphes API `debit_credit_by_period` et `cumulative_balance_by_period`.
 - [x] Enrichir `detect_ras_candidates` avec `ras_review.periods`: periode, pieces evaluees, candidats, montant, devise et taux candidat.
@@ -269,8 +269,8 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 - [x] Ajouter les tests unitaires du tool interne `analyze_ledger`.
 - [x] Ajouter les tests unitaires du tool interne `classify_ledger_schema`.
 - [x] Ajouter les tests unitaires des tools internes `detect_data_quality_issues` et `detect_tax_candidates`.
-- [x] Ajouter les tests unitaires du routeur deterministe de tools agent.
-- [x] Ajouter les tests unitaires du routage `Explique-moi cet Excel` vers `analyze_ledger`, `calculate_ledger_metrics`, `aggregate_ledger`, `detect_data_quality_issues` et `detect_tax_candidates`.
+- [x] Historique: ajouter les tests unitaires du routeur deterministe de tools agent, ensuite remplaces par les tests LLM-first.
+- [x] Ajouter les tests unitaires du choix LLM-first `Explique-moi cet Excel` vers `analyze_ledger`, `calculate_ledger_metrics`, `aggregate_ledger`, `detect_data_quality_issues` et `detect_tax_candidates`.
 - [x] Ajouter les tests unitaires du router `agent`.
 - [x] Ajouter les tests unitaires des erreurs HTTP sanitisees du router `agent`.
 - [x] Ajouter les tests unitaires des tools agent autorises par defaut.
@@ -321,12 +321,14 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 - [x] Retourner le fichier actif, les fichiers de session et les derniers evenements agent.
 - [x] Generer un dashboard fichier deterministe sans LLM: resume, schema, metriques, graphique top comptes, qualite donnees.
 - [x] Enrichir le dashboard avec graphes multi-dimensions: comptes, periodes, types de piece, TVA, fournisseurs, clients, qualite et candidats fiscaux.
+- [x] Remplacer l'indicateur global `Montant` par des soldes metier par nature de compte dans le contrat dashboard: normal side du compte, devise, ecritures utilisees/exclues et natures variables non calculables.
 - [x] Ajouter un contrat de graphe riche: `chart_id`, `kind`, `metric`, `labels`, `values`, `series`, `metadata`.
 - [x] Retourner des erreurs stables si un fichier est expire, supprime ou introuvable: `file_expired`, `file_missing`.
 - [x] Ajouter un contrat front stable pour les fichiers agent: statut, expiration, nom original safe, taille, type MIME, dates.
-- [x] Renforcer le routeur deterministe de questions: detecter un compte et router vers `query_ledger_entries`.
-- [x] Renforcer le routeur deterministe de questions: detecter periode, TVA, fournisseur, client, montant min/max.
-- [x] Construire automatiquement les arguments tool fiables, par exemple `{"filters": {"account": "44585100"}}`.
+- [x] Historique: construire un routeur deterministe initial pour les questions GL simples.
+- [x] Remplacer le routeur deterministe du flux agent normal par un choix de tools pilote par le LLM.
+- [x] Supprimer le fallback automatique `analyze_ledger` quand le LLM ne demande aucun tool.
+- [x] Masquer `file_path` et `sheet_name` des schemas tools visibles par le LLM, puis les injecter cote serveur.
 - [x] Appliquer une pagination par defaut et une limite stricte des lignes retournees pour `query_ledger_entries`.
 - [x] Stabiliser le payload `query_ledger_entries`: total trouve, page affichee, page_size, filtres, colonnes retournees, entries.
 - [x] Retourner un message clair et structure si une requete ledger donne 0 resultat.
@@ -341,6 +343,12 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 - [x] Valider la persistance agent: `npm run api:test`, `npm run api:lint`, `npm run api:typecheck`, `npm run api:compile`.
 
 ## Challenge et Rapprochement des Tools Agent Excel
+
+- [x] Basculer le flux chat normal en LLM-first: le modele choisit le tool autorise; les tools gardent les calculs deterministes.
+- [x] Supprimer `api/app/agent/tool_router.py` et ses tests pour eviter les listes de mots-cles figees.
+- [x] Adapter les tests orchestrateur LLM-first: RAG, calcul RAS, qualite, candidats RAS, requetes GL et analyses globales.
+- [x] Validation ciblee: `python -m pytest app/agent/tests/test_orchestrator.py -q` -> 26 tests passes.
+- [ ] Reprendre les challenges runtime question par question via l'interface/API avec format: question, tools, reponse, insuffisances.
 
 ### Ordre de challenge GL — priorite actuelle
 
@@ -374,10 +382,70 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
   - [ ] « Identifie les avoirs et extournes sans les compter deux fois. »
   - [ ] « Detecte les candidats RAS puis rapproche leurs contreparties dans les pieces. »
 
+### Ordre de challenge RAS — audit metier
+
+- [x] 1. Detection simple des candidats RAS:
+  - [x] Question: « Detecte les pieces candidates a la RAS dans ce Grand Livre. »
+  - [x] Tool attendu: `detect_ras_candidates`.
+  - [x] Verifier: nombre de candidats, exclusions, signaux, absence de decision fiscale ferme.
+  - [x] Resultat challenge `GL_anonymise_2500.xlsx`: LLM choisit `detect_ras_candidates`; tool OK apres masquage de `column_mapping` au modele et acceptation de `column_mapping: {}`/`limit`; 2 500 lignes, 2 205 pieces evaluees, 611 pieces candidates, 0 rejet, decision `review_only_no_tax_conclusion`.
+- [x] 2. Detection avec filtres:
+  - [x] Question: « Detecte les candidats RAS pour l'exercice 2024 uniquement. »
+  - [x] Tool attendu: `detect_ras_candidates`.
+  - [x] Verifier: filtre exercice applique, aucun candidat hors periode, compteurs coherents.
+  - [x] Resultat challenge `GL_anonymise_2500.xlsx`: LLM choisit `detect_ras_candidates`; filtre `fiscal_year=2024` applique; 2 500 lignes source, 1 237 lignes filtrees, 1 095 pieces evaluees, 296 pieces candidates, 0 rejet, montant candidat `59 945 000 XOF`.
+- [x] 3. Reconstruction d'une piece:
+  - [x] Question: « Reconstitue la piece comptable <piece> de l'exercice <annee>. »
+  - [x] Tool attendu: `reconstruct_accounting_entry`.
+  - [x] Verifier: lignes groupees par piece, debit/credit par devise, cles inconnues signalees.
+  - [x] Resultat challenge `GL_anonymise_2500.xlsx` avec piece `2024002341` / exercice `2024`: LLM choisit `reconstruct_accounting_entry`; selecteur normalise `document_number=2024002341`, `fiscal_year=2024`; piece trouvee avec 2 lignes (`61365000` 452 000 XOF, `34552001` 81 360 XOF), journal `KR`, periode 11; piece non equilibree, debit 533 360 XOF, credit 0 XOF, ecart 533 360 XOF.
+- [x] 4. Recherche de contrepartie RAS:
+  - [x] Question: « Pour cette piece candidate, cherche si une RAS a ete comptabilisee dans la meme piece. »
+  - [x] Tool attendu: `find_ras_counterpart`.
+  - [x] Verifier: meme piece prioritaire, comptes RAS mappes, pas de double comptage.
+  - [x] Resultat challenge `GL_anonymise_2500.xlsx`: LLM choisit `find_ras_counterpart`; 611 candidats detectes au sens large, 518 pieces analysees pour contrepartie, 93 hors scope rapprochement; 59 contreparties RAS trouvees dans la meme piece, 459 indeterminees, 0 non trouvee dans le perimetre; montant confirme `1 693 625 XOF`; scope incomplet documente (`journal_is_document_type_proxy`, `missing_company_scope`, `posting_date_is_document_date_proxy`).
+- [x] 5. Cas sans contrepartie RAS:
+  - [x] Question: « Verifie cette piece candidate sans ligne RAS apparente. »
+  - [x] Tool attendu: `find_ras_counterpart`.
+  - [x] Verifier: absence qualifiee comme `RAS non retrouvee dans le GL` seulement si scope complet.
+  - [x] Resultat challenge `GL_anonymise_2500.xlsx`: LLM choisit `find_ras_counterpart`; 59 contreparties trouvees dans la meme piece, 459 cas indetermines, 0 cas qualifie `not_found_in_scope` car le perimetre GL est incomplet; la reponse ne conclut pas a une omission RAS. Limite restante: le tool retourne un resume global, pas encore le detail d'une piece precise sans contrepartie.
+- [x] 6. Evaluation comptable RAS:
+  - [x] Question: « Evalue la comptabilisation RAS de ce candidat avec les faits fournis. »
+  - [x] Tool attendu: `assess_ras_accounting`.
+  - [x] Verifier: attendu, comptabilise, ecart, devise, tolerance, faits manquants.
+  - [x] Resultat challenge `GL_anonymise_2500.xlsx`: LLM choisit `assess_ras_accounting` avec `candidate_id` et `base_audit_id`; faits utilisateur UTF-8 extraits; regle `resident_standard_2025` resolue provisoirement; attendu `5 000 XOF`, comptabilise `16 250 XOF`, ecart `11 250 XOF`, alerte `ras_recorded_above_expected`, aucune information manquante. Insuffisance observee: sans accents/ponctuation correcte, certains faits ne sont pas extraits et le calcul reste non calculable.
+- [x] 7. Audit batch:
+  - [x] Question: « Lance un audit RAS du Grand Livre et retourne les candidats a revoir. »
+  - [x] Tool attendu: `run_ras_audit_batch`.
+  - [x] Verifier: `audit_id`, candidats opaques, limite de sortie, pas de faits globaux appliques.
+  - [x] Resultat challenge `GL_anonymise_2500.xlsx`: apres ajout de `RAS_FACT_CONTEXT_SIGNING_KEY` et `RAS_USER_FACT_PATTERNS_PATH` dans Docker, LLM choisit `run_ras_audit_batch`; audit persiste avec `audit_id`; 611 candidats, 404 potentiels, 207 indetermines, 20 IDs retournes, 591 restants; scope incomplet documente (`journal_is_document_type_proxy`, `missing_company_scope`, `posting_date_is_document_date_proxy`). Correction persistance: `flush()` de l'audit parent avant insertion des cas enfants.
+- [ ] 8. Enchainement mono-candidat:
+  - [ ] Question: « Audite la RAS sur un fichier contenant un seul candidat. »
+  - [ ] Tools attendus: `run_ras_audit_batch` puis `assess_ras_accounting`.
+  - [ ] Verifier: enchainement automatique uniquement si un seul candidat.
+- [ ] 9. Multi-candidats avec faits utilisateur:
+  - [ ] Question: « Tous les prestataires sont residents et immatricules IFU, audite tout. »
+  - [ ] Tool attendu: `run_ras_audit_batch`.
+  - [ ] Verifier: refus d'appliquer les faits utilisateur globalement a plusieurs candidats.
+- [x] 10. Rapport d'audit RAS:
+  - [x] Question: « Genere le rapport de l'audit RAS <audit_id>. »
+  - [x] Tool attendu: `generate_ras_audit_report`.
+  - [x] Verifier: statuts, montants par devise, limites, sources, aucune donnee brute sensible.
+  - [x] Resultat challenge `audit_id=0dce731bc9f44c73a63f3f31c6d5a460`: LLM choisit `generate_ras_audit_report`; 611 cas, statuts `applicability_probable_to_confirm=404` et `indeterminate_missing_data=207`; ajout de `recorded_amount_summaries` pour afficher les montants comptabilises observes par devise sans inventer de montant theorique.
+- [ ] 11. Robustesse tool-calling RAS:
+  - [ ] Verifier choix du bon tool avec tous les tools visibles.
+  - [ ] Verifier arguments synonymes ou incomplets.
+  - [ ] Verifier refus propre si `audit_id`, piece, date, devise ou faits requis manquent.
+  - [ ] Verifier que le LLM n'invente ni taux, ni categorie RAS, ni montant.
+
 ### Ordre restant apres le challenge GL
 
-- [ ] 8. Challenger les tools RAS sur questions simples, incompletes, contradictoires puis multi-candidats.
+- [ ] 8. Executer le challenge RAS audit metier selon la section dediee ci-dessus.
 - [ ] 9. Challenger le RAG juridique sur CGI et loi de finances 2026 avec citations et refus hors source.
+  - [x] Corriger le routage naturel: une question fiscale sans formule `sources indexees` appelle `query_tax_rag`.
+  - [x] Corriger la reponse RAG: commencer par la reponse directe si les citations la contiennent, puis citer les sources utiles.
+  - [x] Resultat challenge runtime: question RAS resident IFU 2026 -> tool `query_tax_rag`, reponse directe `5 %`, premiere citation `Loi de finances 2026`, article 15 modifiant CGI article 207.
+  - [ ] Tester le refus hors source et les questions juridiques ambigues avant validation complete.
 - [ ] 10. Calibrer les embeddings multilingues reels apres rebuild Docker et revue du jeu d'or.
 - [ ] 11. Completer les faits generateurs, echeances et categories juridiques encore non sourcees.
 - [ ] 12. Finaliser l'enchainement multi-candidats sans interpretation numerique du LLM.

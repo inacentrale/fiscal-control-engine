@@ -25,6 +25,7 @@ def test_generates_report_only_from_persisted_cases(tmp_path: Path) -> None:
 
     assert report.case_count == 1
     assert report.amount_summaries[0].expected_amount == 5000
+    assert report.recorded_amount_summaries[0].recorded_amount == 5000
     assert report.details[0].candidate_id == "entry-1"
     assert repeated.report_id == report.report_id
     assert [event.event_type for event in repository.list_events("audit-1")] == [

@@ -74,6 +74,7 @@ DEFAULT_AGENT_TOOLS = (
     "calculate_ledger_metrics",
     "detect_data_quality_issues",
     "detect_tax_candidates",
+    "reconstruct_accounting_entry",
     "detect_ras_candidates",
     "query_tax_rag",
 )

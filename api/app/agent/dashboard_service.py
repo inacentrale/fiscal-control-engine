@@ -6,7 +6,11 @@ from app.config import Settings
 from app.excel_agent.excel_tools import ExcelAgentTools
 from app.excel_agent.tool_executor import ExcelToolExecutor
 from app.excel_agent.tool_registry import create_excel_tool_registry
-from app.ledger_analysis.account_balance_rules import load_account_balance_rules
+from app.ledger_analysis.account_balance_rules import (
+    AccountBalanceRule,
+    find_account_balance_rule,
+    load_account_balance_rules,
+)
 from app.ledger_analysis.posting_key_rules import load_posting_key_rules
 from app.llm.domain import ToolCall
 from app.rag_source.embedding_provider_factory import create_embedding_provider
@@ -197,6 +201,9 @@ def build_file_dashboard(
             ),
         ),
     )
+    account_balance_rules = load_account_balance_rules(
+        Path(settings.account_balance_rules_path),
+    )
     quality = _successful_tool_output(
         executor.execute(
             ToolCall(
@@ -229,6 +236,10 @@ def build_file_dashboard(
         metrics=_dict_value(metrics.get("metrics")),
         amount_metrics_by_currency=_currency_metrics(
             metrics.get("metrics_by_currency"),
+        ),
+        business_balances_by_nature=_business_balances_by_nature(
+            aggregation=aggregation,
+            account_balance_rules=account_balance_rules,
         ),
         charts=_dashboard_charts(
             metrics=metrics,
@@ -268,6 +279,124 @@ def _dashboard_charts(
     charts.extend(_quality_charts(quality))
     charts.extend(_tax_candidate_charts(tax_candidates))
     return charts
+
+
+def _business_balances_by_nature(
+    *,
+    aggregation: dict[str, object],
+    account_balance_rules: tuple[AccountBalanceRule, ...],
+) -> list[dict[str, object]]:
+    account_groups = _aggregation_groups(
+        _dict_value(aggregation.get("aggregations")),
+        "account",
+    )
+    totals: dict[tuple[str, str, str], dict[str, object]] = {}
+    for group in account_groups:
+        account = group.get("key")
+        if not isinstance(account, str):
+            continue
+        currency = str(group.get("currency") or "Sans devise")
+        rule = find_account_balance_rule(account, account_balance_rules)
+        nature = rule.nature if rule is not None and rule.nature else "unclassified"
+        normal_side = rule.normal_side if rule is not None else "unknown"
+        status = (
+            "calculated"
+            if normal_side in {"debit", "credit"}
+            else "not_calculable"
+        )
+        key = (nature, currency, normal_side)
+        current = totals.setdefault(
+            key,
+            {
+                "nature": nature,
+                "currency": currency,
+                "normal_side": normal_side,
+                "status": status,
+                "business_balance": 0.0 if status == "calculated" else None,
+                "entry_count": 0,
+                "used_entry_count": 0,
+                "excluded_entry_count": 0,
+                "business_excluded_entry_count": 0,
+                "raw_amount_sum": 0.0,
+                "debit_total": 0.0,
+                "credit_total": 0.0,
+                "account_count": 0,
+                "_accounts": set(),
+            },
+        )
+        entry_count = _numeric_group_value(group, "entry_count")
+        used_entry_count = _numeric_group_value(group, "used_entry_count")
+        excluded_entry_count = _numeric_group_value(group, "excluded_entry_count")
+        technical_balance = _numeric_group_value(group, "balance")
+        current["entry_count"] = _int_metric(current, "entry_count") + int(
+            entry_count
+        )
+        current["used_entry_count"] = _int_metric(current, "used_entry_count") + int(
+            used_entry_count
+        )
+        current["excluded_entry_count"] = _int_metric(
+            current, "excluded_entry_count"
+        ) + int(excluded_entry_count)
+        current["raw_amount_sum"] = round(
+            _float_metric(current, "raw_amount_sum")
+            + _numeric_group_value(group, "raw_amount_sum"),
+            2,
+        )
+        current["debit_total"] = round(
+            _float_metric(current, "debit_total")
+            + _numeric_group_value(group, "debit_total"),
+            2,
+        )
+        current["credit_total"] = round(
+            _float_metric(current, "credit_total")
+            + _numeric_group_value(group, "credit_total"),
+            2,
+        )
+        accounts = current["_accounts"]
+        if isinstance(accounts, set):
+            accounts.add(account)
+            current["account_count"] = len(accounts)
+        if status == "calculated":
+            business_delta = (
+                technical_balance if normal_side == "debit" else -technical_balance
+            )
+            current["business_balance"] = round(
+                _float_metric(current, "business_balance") + business_delta,
+                2,
+            )
+        else:
+            current["business_excluded_entry_count"] = _int_metric(
+                current,
+                "business_excluded_entry_count",
+            ) + int(used_entry_count)
+
+    result = []
+    for item in totals.values():
+        clean_item = {key: value for key, value in item.items() if key != "_accounts"}
+        result.append(clean_item)
+    return sorted(
+        result,
+        key=lambda item: (
+            str(item["status"]) != "calculated",
+            str(item["nature"]),
+            str(item["currency"]),
+        ),
+    )
+
+
+def _numeric_group_value(group: dict[str, object], key: str) -> float:
+    value = group.get(key)
+    return float(value) if isinstance(value, int | float) else 0.0
+
+
+def _int_metric(metrics: dict[str, object], key: str) -> int:
+    value = metrics.get(key)
+    return int(value) if isinstance(value, int | float) else 0
+
+
+def _float_metric(metrics: dict[str, object], key: str) -> float:
+    value = metrics.get(key)
+    return float(value) if isinstance(value, int | float) else 0.0
 
 
 def _account_charts(

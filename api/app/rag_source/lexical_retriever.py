@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from unicodedata import normalize
 
@@ -109,7 +110,7 @@ def _tokenize(value: str) -> tuple[str, ...]:
     normalized = normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
     terms = {
         term
-        for term in normalized.lower().split()
+        for term in re.findall(r"[a-z0-9]+", normalized.lower())
         if len(term) >= MIN_TERM_LENGTH and term not in _STOPWORDS
     }
     return tuple(sorted(terms))

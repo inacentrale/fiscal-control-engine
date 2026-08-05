@@ -3,6 +3,7 @@ from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType
+from unicodedata import normalize
 from uuid import uuid4
 
 from app.account_mapping.classifier import ClassificationRule
@@ -140,6 +141,33 @@ QUERY_FILTER_NAMES = {
     "customer",
     "amount_min",
     "amount_max",
+}
+QUERY_FILTER_ALIASES = {
+    "account_number": "account",
+    "compte": "account",
+    "numero_compte": "account",
+    "numero_de_compte": "account",
+    "n_compte": "account",
+    "periode": "period",
+    "exercise": "fiscal_year",
+    "exercice": "fiscal_year",
+    "annee": "fiscal_year",
+    "year": "fiscal_year",
+    "code_tva": "tax_code",
+    "tva": "tax_code",
+    "fournisseur": "vendor",
+    "vendeur": "vendor",
+    "client": "customer",
+    "montant_min": "amount_min",
+    "montant_minimum": "amount_min",
+    "montant_max": "amount_max",
+    "montant_maximum": "amount_max",
+}
+RAS_DETECTION_FILTER_NAMES = {
+    "account",
+    "period",
+    "fiscal_year",
+    "currency",
 }
 
 ToolResult = (
@@ -560,6 +588,8 @@ class ExcelToolExecutor:
                     sheet_name=str(validated_call.arguments["sheet_name"]),
                 )
                 raw_mapping = validated_call.arguments.get("column_mapping")
+                if isinstance(raw_mapping, dict) and not raw_mapping:
+                    raw_mapping = None
                 if raw_mapping is None:
                     if not self._ledger_column_aliases:
                         return _failed(
@@ -630,6 +660,23 @@ class ExcelToolExecutor:
                             self._posting_key_rules
                         ).reconstruct(normalization_report.entries)
                     if validated_call.name == "reconstruct_accounting_entry":
+                        raw_selector = validated_call.arguments.get("entry_selector")
+                        selector = _reconstruction_entry_selector(raw_selector)
+                        if raw_selector is not None and selector is None:
+                            return _failed(
+                                tool_call.name,
+                                "invalid_accounting_entry_selector",
+                                "accounting entry selector is invalid",
+                            )
+                        selected_entry = _select_reconstructed_entry(
+                            reconstruction.entries,
+                            selector,
+                        )
+                        selected_line_ids = (
+                            set(selected_entry.line_ids)
+                            if selected_entry is not None
+                            else set()
+                        )
                         result = AccountingEntryReconstructionToolReport(
                             sheet_name=normalization_report.sheet_name,
                             source_row_count=(
@@ -641,6 +688,13 @@ class ExcelToolExecutor:
                             ),
                             rejected_row_count=len(normalization_report.rejected_rows),
                             reconstruction=reconstruction,
+                            selected_entry=selected_entry,
+                            selected_lines=tuple(
+                                entry
+                                for entry in normalization_report.entries
+                                if entry.line_id in selected_line_ids
+                            ),
+                            selector=selector,
                         )
                     elif validated_call.name == "find_ras_counterpart":
                         if not has_expense_candidate_mapping(
@@ -660,6 +714,27 @@ class ExcelToolExecutor:
                             account_mappings=self._ras_ledger_account_mappings,
                         )
                         source_scope_complete = scope.is_complete
+                        detected_candidate_piece_count = (
+                            len(
+                                RasCandidateDetector(
+                                    posting_key_rules=self._posting_key_rules,
+                                    account_mappings=(
+                                        self._ras_ledger_account_mappings
+                                    ),
+                                    signals=self._ras_candidate_signals,
+                                    semantic_classifier=(
+                                        self._ras_semantic_classifier
+                                    ),
+                                )
+                                .detect(
+                                    ledger_entries=normalization_report.entries,
+                                    reconstruction=reconstruction,
+                                )
+                                .candidates
+                            )
+                            if self._ras_candidate_signals
+                            else None
+                        )
                         result = RasCounterpartToolReport(
                             sheet_name=normalization_report.sheet_name,
                             source_row_count=(
@@ -673,6 +748,9 @@ class ExcelToolExecutor:
                             source_scope_complete=source_scope_complete,
                             source_scope_blockers=scope.blocker_codes,
                             source_scope_policy_version=scope.policy_version,
+                            detected_candidate_piece_count=(
+                                detected_candidate_piece_count
+                            ),
                             report=RasCounterpartFinder(
                                 posting_key_rules=self._posting_key_rules,
                                 account_mappings=self._ras_ledger_account_mappings,
@@ -700,26 +778,54 @@ class ExcelToolExecutor:
                                 "ras_candidate_signal_reference_unavailable",
                                 "RAS candidate signal reference is unavailable",
                             )
+                        filters = _ras_detection_filters(
+                            validated_call.arguments.get("filters")
+                        )
+                        if filters is None:
+                            return _failed(
+                                tool_call.name,
+                                "invalid_filter",
+                                "RAS candidate filter is invalid",
+                            )
+                        filtered_entries = _filter_ras_detection_entries(
+                            normalization_report.entries,
+                            filters,
+                        )
+                        filtered_line_ids = {
+                            entry.line_id for entry in filtered_entries
+                        }
+                        filtered_issue_codes = tuple(
+                            issue.code
+                            for issue in normalization_report.issues
+                            if issue.line_id in filtered_line_ids
+                        )
+                        filtered_reconstruction = AccountingEntryReconstructor(
+                            self._posting_key_rules
+                        ).reconstruct(filtered_entries)
                         result = RasCandidateDetectionToolReport(
                             sheet_name=normalization_report.sheet_name,
                             source_row_count=(
                                 len(normalization_report.entries)
                                 + len(normalization_report.rejected_rows)
                             ),
-                            rejected_row_count=len(normalization_report.rejected_rows),
-                            normalization_issue_codes=tuple(
-                                issue.code for issue in normalization_report.issues
+                            filtered_row_count=len(filtered_entries),
+                            filters=filters,
+                            rejected_row_count=(
+                                len(normalization_report.rejected_rows)
+                                if not filters
+                                else 0
                             ),
-                            ledger_entries=normalization_report.entries,
-                            reconstruction=reconstruction,
+                            normalization_issue_codes=filtered_issue_codes,
+                            ledger_entries=filtered_entries,
+                            reconstruction=filtered_reconstruction,
                             report=RasCandidateDetector(
                                 posting_key_rules=self._posting_key_rules,
                                 account_mappings=self._ras_ledger_account_mappings,
                                 signals=self._ras_candidate_signals,
                                 semantic_classifier=self._ras_semantic_classifier,
                             ).detect(
-                                ledger_entries=normalization_report.entries,
-                                reconstruction=reconstruction,
+                                ledger_entries=filtered_entries,
+                                reconstruction=filtered_reconstruction,
                             ),
                         )
                     elif validated_call.name == "classify_transaction_semantics":
@@ -879,8 +985,8 @@ class ExcelToolExecutor:
                                 "ambiguous_accounting_entry_selector",
                                 "provide either candidate_id or accounting_entry",
                             )
-                        selector = _accounting_entry_selector(raw_selector)
-                        if candidate_id is None and selector is None:
+                        assessment_selector = _accounting_entry_selector(raw_selector)
+                        if candidate_id is None and assessment_selector is None:
                             return _failed(
                                 tool_call.name,
                                 "invalid_accounting_entry_selector",
@@ -906,7 +1012,7 @@ class ExcelToolExecutor:
                         selected_entry = _select_accounting_entry(
                             reconstruction.entries,
                             candidate_id=candidate_id,
-                            selector=selector,
+                            selector=assessment_selector,
                         )
                         if selected_entry is None:
                             return _failed(
@@ -914,11 +1020,11 @@ class ExcelToolExecutor:
                                 "accounting_entry_not_found",
                                 "selected accounting entry was not found",
                             )
-                        selected_line_ids = frozenset(selected_entry.line_ids)
+                        assessment_line_ids = frozenset(selected_entry.line_ids)
                         selected_lines = tuple(
                             entry
                             for entry in normalization_report.entries
-                            if entry.line_id in selected_line_ids
+                            if entry.line_id in assessment_line_ids
                         )
                         posting_dates = {
                             entry.posting_date
@@ -1674,7 +1780,7 @@ def _serialize_result(
             }
         )
         balanced_count = sum(entry.is_balanced for entry in reconstruction.entries)
-        return {
+        output = {
             "sheet_name": result.sheet_name,
             "row_count": result.source_row_count,
             "entry_count": len(reconstruction.entries),
@@ -1688,6 +1794,52 @@ def _serialize_result(
             "issue_counts": reconstruction_issue_counts,
             "currencies": currencies,
         }
+        if result.selector is not None:
+            output["selector"] = result.selector
+            output["selected_entry_found"] = result.selected_entry is not None
+        if result.selected_entry is not None:
+            selected_entry = result.selected_entry
+            output["selected_entry"] = {
+                "entry_id": selected_entry.entry_id,
+                "key": {
+                    "company_code": selected_entry.key.company_code,
+                    "fiscal_year": selected_entry.key.fiscal_year,
+                    "journal": selected_entry.key.journal,
+                    "document_number": selected_entry.key.document_number,
+                },
+                "line_count": len(selected_entry.line_ids),
+                "is_balanced": selected_entry.is_balanced,
+                "balances": [
+                    {
+                        "currency": balance.currency,
+                        "debit_total": str(balance.debit_total),
+                        "credit_total": str(balance.credit_total),
+                        "difference": str(balance.difference),
+                        "used_line_count": balance.used_line_count,
+                        "excluded_line_count": balance.excluded_line_count,
+                    }
+                    for balance in selected_entry.balances
+                ],
+                "issues": [
+                    {
+                        "code": issue.code,
+                        "severity": issue.severity.value,
+                    }
+                    for issue in selected_entry.issues
+                ],
+                "lines": [
+                    {
+                        "account": line.account_number,
+                        "posting_key": line.posting_key,
+                        "amount": str(line.amount) if line.amount is not None else None,
+                        "currency": line.currency,
+                        "period": line.period,
+                        "fiscal_year": line.fiscal_year,
+                    }
+                    for line in result.selected_lines
+                ],
+            }
+        return output
     if isinstance(result, RasCounterpartToolReport):
         assessments = result.report.assessments
         status_counts = {
@@ -1735,7 +1887,23 @@ def _serialize_result(
         return {
             "sheet_name": result.sheet_name,
             "row_count": result.source_row_count,
+            "detected_candidate_piece_count": (
+                result.detected_candidate_piece_count
+            ),
             "candidate_piece_count": len(assessments),
+            "counterpart_scope_exclusion_count": (
+                (
+                    result.detected_candidate_piece_count
+                    - len(assessments)
+                )
+                if result.detected_candidate_piece_count is not None
+                else None
+            ),
+            "counterpart_scope_basis": (
+                "Pieces avec au moins une ligne de charge candidate mappee; "
+                "les candidats purement textuels ou hors mapping comptable "
+                "ne sont pas rapproches ici."
+            ),
             "status_counts": status_counts,
             "confirmed_amounts_by_currency": confirmed_amounts,
             "potential_related_amounts_by_currency": potential_related_amounts,
@@ -1778,7 +1946,9 @@ def _serialize_result(
             candidate_issue_counts[code] = candidate_issue_counts.get(code, 0) + 1
         return {
             "sheet_name": result.sheet_name,
-            "row_count": result.source_row_count,
+            "row_count": result.filtered_row_count,
+            "source_row_count": result.source_row_count,
+            "filters": result.filters,
             "evaluated_piece_count": result.report.evaluated_piece_count,
             "candidate_piece_count": len(candidates),
             "excluded_piece_count": result.report.excluded_piece_count,
@@ -1885,6 +2055,15 @@ def _serialize_ras_audit_report(report: RasAuditReport) -> dict[str, object]:
                 "difference": str(summary.difference),
             }
             for summary in report.amount_summaries
+        ],
+        "recorded_amount_summaries": [
+            {
+                "certainty": summary.certainty.value,
+                "currency": summary.currency,
+                "case_count": summary.case_count,
+                "recorded_amount": str(summary.recorded_amount),
+            }
+            for summary in report.recorded_amount_summaries
         ],
         "details": [
             {
@@ -2116,17 +2295,208 @@ def _optional_dict(raw_value: object) -> dict[str, object]:
 
 
 def _query_filters(raw_value: object) -> dict[str, object] | None:
-    filters = _optional_dict(raw_value)
-    for filter_name, filter_value in filters.items():
+    raw_filters = _optional_dict(raw_value)
+    filters: dict[str, object] = {}
+    for raw_filter_name, filter_value in raw_filters.items():
+        if not isinstance(raw_filter_name, str):
+            return None
+        filter_name = _canonical_query_filter_name(raw_filter_name)
         if filter_name not in QUERY_FILTER_NAMES:
             return None
-        if filter_name in {"amount_min", "amount_max"}:
-            if not isinstance(filter_value, int | float):
-                return None
-            continue
-        if not isinstance(filter_value, str):
+        normalized_value = _query_filter_value(filter_name, filter_value)
+        if normalized_value is None:
             return None
+        existing_value = filters.get(filter_name)
+        if existing_value is not None and existing_value != normalized_value:
+            return None
+        filters[filter_name] = normalized_value
     return filters
+
+
+def _ras_detection_filters(raw_value: object) -> dict[str, object] | None:
+    raw_filters = _optional_dict(raw_value)
+    filters: dict[str, object] = {}
+    for raw_filter_name, filter_value in raw_filters.items():
+        if not isinstance(raw_filter_name, str):
+            return None
+        filter_name = _canonical_query_filter_name(raw_filter_name)
+        if filter_name not in RAS_DETECTION_FILTER_NAMES:
+            return None
+        normalized_value = _query_filter_value(filter_name, filter_value)
+        if normalized_value is None:
+            return None
+        if filter_name == "currency":
+            normalized_value = str(normalized_value).upper()
+        existing_value = filters.get(filter_name)
+        if existing_value is not None and existing_value != normalized_value:
+            return None
+        filters[filter_name] = normalized_value
+    return filters
+
+
+def _filter_ras_detection_entries(
+    entries: tuple[CanonicalLedgerEntry, ...],
+    filters: dict[str, object],
+) -> tuple[CanonicalLedgerEntry, ...]:
+    if not filters:
+        return entries
+    return tuple(entry for entry in entries if _ras_entry_matches(entry, filters))
+
+
+def _ras_entry_matches(
+    entry: CanonicalLedgerEntry,
+    filters: dict[str, object],
+) -> bool:
+    for filter_name, filter_value in filters.items():
+        expected = str(filter_value)
+        if filter_name == "account" and entry.account_number != expected:
+            return False
+        if filter_name == "period" and str(entry.period or "") != expected:
+            return False
+        if filter_name == "fiscal_year" and str(entry.fiscal_year or "") != expected:
+            return False
+        if filter_name == "currency" and (entry.currency or "") != expected:
+            return False
+    return True
+
+
+def _reconstruction_entry_selector(
+    raw_value: object,
+) -> dict[str, str | int | None] | None:
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, dict):
+        return None
+    selector: dict[str, str | int | None] = {}
+    for raw_key, raw_selector_value in raw_value.items():
+        if not isinstance(raw_key, str):
+            return None
+        key = _canonical_entry_selector_name(raw_key)
+        if key not in {
+            "company_code",
+            "fiscal_year",
+            "journal",
+            "document_number",
+        }:
+            return None
+        value = _entry_selector_value(key, raw_selector_value)
+        if value is None and key != "company_code":
+            return None
+        existing_value = selector.get(key)
+        if existing_value is not None and existing_value != value:
+            return None
+        selector[key] = value
+    if "document_number" not in selector:
+        return None
+    return selector
+
+
+def _canonical_entry_selector_name(raw_key: str) -> str:
+    normalized = _canonical_query_filter_name(raw_key)
+    aliases = {
+        "piece": "document_number",
+        "numero_piece": "document_number",
+        "numero_de_piece": "document_number",
+        "document": "document_number",
+        "document_no": "document_number",
+        "document_id": "document_number",
+        "type_piece": "journal",
+        "type_de_piece": "journal",
+        "journal_code": "journal",
+        "societe": "company_code",
+        "company": "company_code",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _entry_selector_value(
+    key: str,
+    raw_value: object,
+) -> str | int | None:
+    if raw_value is None and key == "company_code":
+        return None
+    if isinstance(raw_value, bool):
+        return None
+    if key == "fiscal_year":
+        if isinstance(raw_value, int):
+            return raw_value if raw_value > 0 else None
+        if isinstance(raw_value, float) and raw_value.is_integer():
+            return int(raw_value) if raw_value > 0 else None
+        if isinstance(raw_value, str) and raw_value.strip().isdigit():
+            year = int(raw_value.strip())
+            return year if year > 0 else None
+        return None
+    if isinstance(raw_value, int):
+        return str(raw_value)
+    if isinstance(raw_value, float):
+        return str(int(raw_value)) if raw_value.is_integer() else str(raw_value)
+    if isinstance(raw_value, str):
+        stripped = raw_value.strip()
+        return stripped or None
+    return None
+
+
+def _select_reconstructed_entry(
+    entries: tuple[ReconstructedAccountingEntry, ...],
+    selector: dict[str, str | int | None] | None,
+) -> ReconstructedAccountingEntry | None:
+    if selector is None:
+        return None
+    matches = tuple(
+        entry for entry in entries if _reconstructed_entry_matches(entry, selector)
+    )
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _reconstructed_entry_matches(
+    entry: ReconstructedAccountingEntry,
+    selector: dict[str, str | int | None],
+) -> bool:
+    if entry.key.document_number != selector["document_number"]:
+        return False
+    fiscal_year = selector.get("fiscal_year")
+    if fiscal_year is not None and entry.key.fiscal_year != fiscal_year:
+        return False
+    journal = selector.get("journal")
+    if journal is not None and entry.key.journal != journal:
+        return False
+    company_code = selector.get("company_code")
+    return not (
+        company_code is not None and entry.key.company_code != company_code
+    )
+
+
+def _canonical_query_filter_name(raw_filter_name: str) -> str:
+    normalized = normalize("NFKD", raw_filter_name.strip().lower())
+    ascii_name = normalized.encode("ascii", "ignore").decode("ascii")
+    stable_name = "_".join(ascii_name.replace("-", "_").split())
+    return QUERY_FILTER_ALIASES.get(stable_name, stable_name)
+
+
+def _query_filter_value(filter_name: str, raw_value: object) -> object | None:
+    if filter_name in {"amount_min", "amount_max"}:
+        if isinstance(raw_value, bool):
+            return None
+        if isinstance(raw_value, int | float):
+            return raw_value
+        if isinstance(raw_value, str):
+            try:
+                return float(raw_value.replace(" ", "").replace(",", "."))
+            except ValueError:
+                return None
+        return None
+    if isinstance(raw_value, bool):
+        return None
+    if isinstance(raw_value, int):
+        return str(raw_value)
+    if isinstance(raw_value, float):
+        return str(int(raw_value)) if raw_value.is_integer() else str(raw_value)
+    if isinstance(raw_value, str):
+        stripped = raw_value.strip()
+        return stripped or None
+    return None
 
 
 def _optional_string(raw_value: object) -> str | None:

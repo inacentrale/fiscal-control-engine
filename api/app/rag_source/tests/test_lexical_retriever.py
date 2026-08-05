@@ -104,6 +104,23 @@ def test_retriever_ignores_common_french_stopwords() -> None:
     )
 
 
+def test_retriever_matches_terms_next_to_punctuation() -> None:
+    chunk = _chunk(
+        1,
+        "Article 207",
+        "taux RAS residents",
+        "Personnes justifiant d'un IFU, retenue fixee a 5 %.",
+    )
+
+    results = LexicalRetriever().search(
+        query="prestataire resident immatricule IFU",
+        chunks=(chunk,),
+    )
+
+    assert results
+    assert "ifu" in results[0].matched_terms
+
+
 def test_retriever_rejects_empty_query() -> None:
     results = LexicalRetriever().search(
         query=" ",

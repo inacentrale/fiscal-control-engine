@@ -4,6 +4,8 @@ from app.agent.orchestrator import (
     AgentOrchestrator,
     AgentRunEvent,
     AgentRunRequest,
+    _compact_tool_output,
+    _deterministic_tool_results_answer,
     _single_candidate_ras_followup,
     _with_request_context,
 )
@@ -20,7 +22,6 @@ from app.llm.domain import (
     ToolCall,
 )
 from app.llm.fallback_model import FallbackModelProvider
-from app.llm.internal_provider import InternalControlledModelProvider
 from app.ras_audit.fact_context import (
     RasExplicitFactExtractor,
     RasFactContextAttestor,
@@ -86,6 +87,101 @@ def test_request_context_is_not_injected_into_non_file_tools() -> None:
     assert contextualized.arguments == {"query": "RAS resident"}
 
 
+def test_report_generation_guidance_uses_audit_id_as_sufficient_input(
+    tmp_path: Path,
+) -> None:
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text="Preciser un audit_id.",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="stop",
+                tool_calls=(),
+            ),
+        )
+    )
+    orchestrator = _create_orchestrator(tmp_path, model)
+
+    orchestrator.run(
+        AgentRunRequest(
+            user_message="Genere le rapport de l'audit RAS audit-1.",
+            file_path=None,
+            sheet_name=None,
+            allowed_tools=("generate_ras_audit_report",),
+        ),
+    )
+
+    system_prompt = model.requests[0].messages[0].content
+    tool_description = model.requests[0].tool_definitions[0].description
+    assert "utilise generate_ras_audit_report" in system_prompt
+    assert "L'audit_id suffit" in system_prompt
+    assert "L'audit_id est l'entree suffisante" in tool_description
+
+
+def test_report_output_is_compacted_for_final_answer() -> None:
+    compact = _compact_tool_output(
+        ToolExecutionResult(
+            tool_name="generate_ras_audit_report",
+            ok=True,
+            output={
+                "report_id": "report-1",
+                "source_sha256": "a" * 64,
+                "generated_at": "2026-08-05T10:00:00Z",
+                "case_count": 2,
+                "status_counts": {"indeterminate": 2},
+                "certainty_counts": {"low": 2},
+                "amount_summaries": [{"currency": "XOF", "expected": "0"}],
+                "recorded_amount_summaries": [
+                    {"currency": "XOF", "recorded_amount": "1000"}
+                ],
+                "details": [{"candidate_id": "candidate-1"}],
+                "reference_versions": ["rules-v1"],
+                "decision_status": "report_only_no_tax_decision",
+            },
+        ),
+    )
+
+    assert compact["report_id"] == "report-1"
+    assert compact["case_count"] == 2
+    assert compact["amount_summaries"] == [{"currency": "XOF", "expected": "0"}]
+    assert compact["recorded_amount_summaries"] == [
+        {"currency": "XOF", "recorded_amount": "1000"}
+    ]
+    assert compact["reference_versions"] == ["rules-v1"]
+
+
+def test_report_result_has_specific_deterministic_answer() -> None:
+    answer = _deterministic_tool_results_answer(
+        (
+            ToolExecutionResult(
+                tool_name="generate_ras_audit_report",
+                ok=True,
+                output={
+                    "report_id": "report-1",
+                    "case_count": 2,
+                    "status_counts": {"indeterminate_missing_data": 1},
+                    "certainty_counts": {"indeterminate": 1},
+                    "amount_summaries": [],
+                    "recorded_amount_summaries": [
+                        {
+                            "certainty": "indeterminate",
+                            "currency": "XOF",
+                            "case_count": 1,
+                            "recorded_amount": "2500",
+                        }
+                    ],
+                    "reference_versions": ["rules-v1"],
+                },
+            ),
+        )
+    )
+
+    assert "**Rapport d'audit RAS**" in answer
+    assert "Report ID : report-1" in answer
+    assert "XOF/indeterminate: 1 cas, comptabilise 2500" in answer
+
+
 def test_single_candidate_batch_builds_safe_deterministic_followup() -> None:
     request = AgentRunRequest(
         user_message="Audite la RAS.",
@@ -131,13 +227,202 @@ def test_multi_candidate_batch_never_applies_user_facts_globally() -> None:
     assert _single_candidate_ras_followup((batch,), request) is None
 
 
-def test_tax_rag_answer_keeps_citations_even_if_model_text_is_unsourced(
+def test_orchestrator_hides_ras_column_mapping_from_model_schema(
+    tmp_path: Path,
+) -> None:
+    workbook_path = write_minified_grand_livre(tmp_path)
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text="Precise le perimetre RAS a analyser.",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="stop",
+                tool_calls=(),
+            ),
+        ),
+    )
+    orchestrator = _create_orchestrator(tmp_path, model)
+
+    orchestrator.run(
+        AgentRunRequest(
+            user_message="Detecte les candidats RAS.",
+            file_path=workbook_path,
+            sheet_name="Grand Livre",
+            allowed_tools=("detect_ras_candidates",),
+        ),
+    )
+
+    schema = model.requests[0].tool_definitions[0].input_schema
+    assert "column_mapping" not in schema.get("properties", {})
+    assert "filters" in schema.get("properties", {})
+
+
+def test_orchestrator_exposes_accounting_entry_selector_to_model(
+    tmp_path: Path,
+) -> None:
+    workbook_path = write_minified_grand_livre(tmp_path)
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text="Je ne retrouve pas la piece demandee.",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="stop",
+                tool_calls=(),
+            ),
+        ),
+    )
+    orchestrator = _create_orchestrator(tmp_path, model)
+
+    orchestrator.run(
+        AgentRunRequest(
+            user_message="Reconstitue la piece 2024002341 de l'exercice 2024.",
+            file_path=workbook_path,
+            sheet_name="Grand Livre",
+            allowed_tools=("reconstruct_accounting_entry",),
+        ),
+    )
+
+    schema = model.requests[0].tool_definitions[0].input_schema
+    properties = schema.get("properties", {})
+    assert "file_path" not in properties
+    assert "sheet_name" not in properties
+    assert "column_mapping" not in properties
+    assert "entry_selector" in properties
+
+
+def test_orchestrator_hides_counterpart_column_mapping_from_model_schema(
+    tmp_path: Path,
+) -> None:
+    workbook_path = write_minified_grand_livre(tmp_path)
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text="Recherche impossible sans donnees.",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="stop",
+                tool_calls=(),
+            ),
+        ),
+    )
+    orchestrator = _create_orchestrator(tmp_path, model)
+
+    orchestrator.run(
+        AgentRunRequest(
+            user_message="Cherche les contreparties RAS dans la meme piece.",
+            file_path=workbook_path,
+            sheet_name="Grand Livre",
+            allowed_tools=("find_ras_counterpart",),
+        ),
+    )
+
+    schema = model.requests[0].tool_definitions[0].input_schema
+    properties = schema.get("properties", {})
+    assert "file_path" not in properties
+    assert "sheet_name" not in properties
+    assert "column_mapping" not in properties
+    assert "related_window_days" in properties
+
+
+def test_final_context_keeps_selected_accounting_entry_details() -> None:
+    result = ToolExecutionResult(
+        tool_name="reconstruct_accounting_entry",
+        ok=True,
+        output={
+            "sheet_name": "Sheet1",
+            "row_count": 2500,
+            "entry_count": 2205,
+            "selector": {
+                "document_number": "2024002341",
+                "fiscal_year": 2024,
+            },
+            "selected_entry_found": True,
+            "selected_entry": {
+                "key": {
+                    "fiscal_year": 2024,
+                    "journal": "KR",
+                    "document_number": "2024002341",
+                },
+                "line_count": 2,
+                "balances": [{"currency": "XOF", "difference": "533360"}],
+                "lines": [
+                    {
+                        "account": "61365000",
+                        "posting_key": "40",
+                        "amount": "452000",
+                        "currency": "XOF",
+                    },
+                ],
+            },
+        },
+    )
+
+    compact = _compact_tool_output(result)
+
+    assert compact["selector"]["document_number"] == "2024002341"
+    assert compact["selected_entry_found"] is True
+    assert compact["selected_entry"]["line_count"] == 2
+    assert compact["selected_entry"]["lines"][0]["account"] == "61365000"
+
+
+def test_ras_counterpart_answer_includes_scope_and_status_counts() -> None:
+    result = ToolExecutionResult(
+        tool_name="find_ras_counterpart",
+        ok=True,
+        output={
+            "detected_candidate_piece_count": 611,
+            "candidate_piece_count": 518,
+            "counterpart_scope_exclusion_count": 93,
+            "counterpart_scope_basis": (
+                "Pieces avec au moins une ligne de charge candidate mappee."
+            ),
+            "status_counts": {
+                "found_in_same_entry": 59,
+                "potential_related_entry": 0,
+                "not_found_in_scope": 0,
+                "indeterminate": 459,
+            },
+            "confirmed_amounts_by_currency": {"XOF": "1693625"},
+            "missing_fact_counts": {"company_code": 459, "partner_id": 84},
+            "source_scope_complete": False,
+            "source_scope_blockers": ["missing_company_scope"],
+        },
+    )
+
+    answer = _deterministic_tool_results_answer((result,))
+
+    assert "Candidats detectes au sens large : 611" in answer
+    assert "Pieces analysees pour contrepartie : 518" in answer
+    assert "Hors scope rapprochement : 93" in answer
+    assert "RAS trouvee dans la meme piece : 59" in answer
+    assert "1693625 XOF" in answer
+    assert "missing_company_scope" in answer
+
+
+def test_tax_rag_tool_is_selected_by_model_and_final_answer_comes_from_model(
     tmp_path: Path,
 ) -> None:
     model = FakeModelProvider(
         responses=(
             ModelResponse(
-                text="Réponse non sourcée du modèle.",
+                text="",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="tool_calls",
+                tool_calls=(
+                    ToolCall(
+                        name="query_tax_rag",
+                        arguments={
+                            "query": "RAS prestataires residents",
+                            "limit": 2,
+                        },
+                    ),
+                ),
+            ),
+            ModelResponse(
+                text="Reponse sourcee redigee par le modele a partir du RAG.",
                 provider_name="fake",
                 model_name="fake-model",
                 finish_reason="stop",
@@ -158,17 +443,25 @@ def test_tax_rag_answer_keeps_citations_even_if_model_text_is_unsourced(
 
     result = orchestrator.run(
         AgentRunRequest(
-            user_message="Que dit le CGI sur la RAS des prestataires résidents ?",
+            user_message="Que dit le CGI sur la RAS des prestataires residents ?",
             file_path=None,
             sheet_name=None,
             allowed_tools=("query_tax_rag",),
         )
     )
 
-    assert "Sources fiscales retrouvées" in result.answer
-    assert "Source : https://" in result.answer
-    assert "Empreinte SHA-256" in result.answer
-    assert "Réponse non sourcée du modèle" not in result.answer
+    assert [tool_result.tool_name for tool_result in result.tool_results] == [
+        "query_tax_rag",
+    ]
+    assert result.answer == "Reponse sourcee redigee par le modele a partir du RAG."
+    assert model.calls == 2
+    assert model.requests[0].allowed_tools == ("query_tax_rag",)
+    assert model.requests[1].allowed_tools == ()
+    assert (
+        "Que dit le CGI sur la RAS des prestataires residents ?"
+        in model.requests[1].messages[1].content
+    )
+    assert "commence par une reponse directe" in model.requests[1].messages[0].content
 
 
 def test_orchestrator_routes_explicit_dated_ras_calculation_end_to_end(
@@ -185,7 +478,38 @@ def test_orchestrator_routes_explicit_dated_ras_calculation_end_to_end(
     model = FakeModelProvider(
         responses=(
             ModelResponse(
-                text="Calcul déterministe terminé.",
+                text="",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="tool_calls",
+                tool_calls=(
+                    ToolCall(
+                        name="calculate_theoretical_ras",
+                        arguments={"transaction_date": "2026-04-10"},
+                    ),
+                ),
+            ),
+            ModelResponse(
+                text="RAS theorique calculee par le tool : 5000 XOF.",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="stop",
+                tool_calls=(),
+            ),
+            ModelResponse(
+                text="",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="tool_calls",
+                tool_calls=(
+                    ToolCall(
+                        name="calculate_theoretical_ras",
+                        arguments={"transaction_date": "2026-04-10"},
+                    ),
+                ),
+            ),
+            ModelResponse(
+                text="Calcul non possible : faits fiscaux insuffisants.",
                 provider_name="fake",
                 model_name="fake-model",
                 finish_reason="stop",
@@ -231,7 +555,7 @@ def test_orchestrator_routes_explicit_dated_ras_calculation_end_to_end(
         )
     )
 
-    assert model.calls == 0
+    assert model.calls == 2
     assert len(result.tool_results) == 1
     assert result.tool_results[0].ok is True
     assert result.tool_results[0].output["calculation_status"] == (
@@ -239,8 +563,9 @@ def test_orchestrator_routes_explicit_dated_ras_calculation_end_to_end(
     )
     assert result.tool_results[0].output["expected_amount"] == "5000"
     assert result.tool_results[0].output["currency"] == "XOF"
-    assert "5000 XOF" in result.answer
-    assert "SECRET-PARTENAIRE-42" not in repr(model.requests)
+    assert result.answer == "RAS theorique calculee par le tool : 5000 XOF."
+    assert "SECRET-PARTENAIRE-42" not in repr(model.requests[1:])
+    assert "SECRET-PARTENAIRE-42" not in repr(result.tool_results)
 
     incomplete = orchestrator.run(
         AgentRunRequest(
@@ -252,12 +577,11 @@ def test_orchestrator_routes_explicit_dated_ras_calculation_end_to_end(
         )
     )
 
-    assert model.calls == 0
+    assert model.calls == 4
     assert incomplete.tool_results[0].output["calculation_status"] == (
         "not_calculable"
     )
-    assert "Calcul RAS non effectue" in incomplete.answer
-    assert "Aucun montant ni taux" in incomplete.answer
+    assert incomplete.answer == "Calcul non possible : faits fiscaux insuffisants."
 
 
 def test_orchestrator_executes_excel_tool_then_requests_final_answer(
@@ -381,7 +705,7 @@ def test_orchestrator_returns_deterministic_answer_when_final_model_is_internal(
     assert model.calls == 2
 
 
-def test_orchestrator_runs_default_excel_analysis_when_model_skips_tool_call(
+def test_orchestrator_does_not_run_default_excel_analysis_when_model_skips_tool_call(
     tmp_path: Path,
 ) -> None:
     workbook_path = write_minified_grand_livre(tmp_path)
@@ -407,20 +731,13 @@ def test_orchestrator_runs_default_excel_analysis_when_model_skips_tool_call(
         ),
     )
 
-    assert result.answer == (
-        "Analyse du Grand Livre terminée: 4 lignes, 5 colonnes.\n\n"
-        "Colonnes requises disponibles."
-    )
-    assert result.tool_results[0].ok is True
-    assert result.tool_results[0].tool_name == "analyze_ledger"
+    assert result.answer == "Les contrôles déterministes sont disponibles."
+    assert result.tool_results == ()
     assert result.provider_name == "internal"
     assert result.model_name == "controlled-response"
     assert [event.event_type for event in result.execution_events] == [
         "run_started",
         "file_checked",
-        "tool_requested",
-        "tool_started",
-        "tool_finished",
         "model_requested",
         "answer_ready",
     ]
@@ -431,6 +748,18 @@ def test_orchestrator_routes_data_quality_before_model_call(tmp_path: Path) -> N
     workbook_path = write_minified_grand_livre(tmp_path)
     model = FakeModelProvider(
         responses=(
+            ModelResponse(
+                text="",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="tool_calls",
+                tool_calls=(
+                    ToolCall(
+                        name="detect_data_quality_issues",
+                        arguments={},
+                    ),
+                ),
+            ),
             ModelResponse(
                 text="Des points de qualité sont à vérifier.",
                 provider_name="fake",
@@ -458,12 +787,21 @@ def test_orchestrator_routes_data_quality_before_model_call(tmp_path: Path) -> N
     assert [tool_result.tool_name for tool_result in result.tool_results] == [
         "detect_data_quality_issues",
     ]
-    assert model.calls == 1
-    assert model.requests[0].allowed_tools == ()
-    assert "detect_data_quality_issues" in model.requests[0].messages[-1].content
+    assert model.calls == 2
+    assert model.requests[0].allowed_tools == (
+        "analyze_ledger",
+        "detect_data_quality_issues",
+        "detect_tax_candidates",
+    )
+    tool_schema = model.requests[0].tool_definitions[0].input_schema
+    assert "file_path" not in tool_schema.get("properties", {})
+    assert "sheet_name" not in tool_schema.get("properties", {})
+    assert model.requests[1].allowed_tools == ()
+    assert "detect_data_quality_issues" in model.requests[1].messages[-1].content
     assert [event.event_type for event in result.execution_events] == [
         "run_started",
         "file_checked",
+        "model_requested",
         "tool_requested",
         "tool_started",
         "tool_finished",
@@ -476,6 +814,18 @@ def test_orchestrator_routes_tax_candidates_before_model_call(tmp_path: Path) ->
     workbook_path = write_minified_grand_livre(tmp_path)
     model = FakeModelProvider(
         responses=(
+            ModelResponse(
+                text="",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="tool_calls",
+                tool_calls=(
+                    ToolCall(
+                        name="detect_tax_candidates",
+                        arguments={},
+                    ),
+                ),
+            ),
             ModelResponse(
                 text="Les candidats fiscaux doivent être revus par le métier.",
                 provider_name="fake",
@@ -503,14 +853,30 @@ def test_orchestrator_routes_tax_candidates_before_model_call(tmp_path: Path) ->
         "detect_tax_candidates",
     ]
     assert result.tool_results[0].output["decision_status"] == "review_required"
-    assert model.calls == 1
-    assert model.requests[0].allowed_tools == ()
+    assert model.calls == 2
+    assert model.requests[0].allowed_tools == (
+        "detect_data_quality_issues",
+        "detect_tax_candidates",
+    )
+    assert model.requests[1].allowed_tools == ()
 
 
 def test_orchestrator_routes_account_question_to_ledger_query(tmp_path: Path) -> None:
     workbook_path = write_minified_grand_livre(tmp_path)
     model = FakeModelProvider(
         responses=(
+            ModelResponse(
+                text="",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="tool_calls",
+                tool_calls=(
+                    ToolCall(
+                        name="query_ledger_entries",
+                        arguments={"filters": {"account": "44585100"}},
+                    ),
+                ),
+            ),
             ModelResponse(
                 text="Aucune écriture trouvée pour ce compte.",
                 provider_name="fake",
@@ -538,16 +904,40 @@ def test_orchestrator_routes_account_question_to_ledger_query(tmp_path: Path) ->
     assert result.tool_results[0].output["message"] == (
         "Aucune écriture ne correspond aux filtres fournis."
     )
-    assert model.calls == 1
-    assert model.requests[0].allowed_tools == ()
-    assert "44585100" in model.requests[0].messages[-1].content
+    assert model.calls == 2
+    assert model.requests[0].allowed_tools == ("query_ledger_entries",)
+    assert model.requests[1].allowed_tools == ()
+    assert "44585100" in model.requests[1].messages[-1].content
 
 
 def test_orchestrator_renders_ledger_query_without_llm_narration(
     tmp_path: Path,
 ) -> None:
     workbook_path = write_minified_grand_livre(tmp_path)
-    orchestrator = _create_orchestrator(tmp_path, InternalControlledModelProvider())
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text="",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="tool_calls",
+                tool_calls=(
+                    ToolCall(
+                        name="query_ledger_entries",
+                        arguments={"filters": {"account": "601000"}},
+                    ),
+                ),
+            ),
+            ModelResponse(
+                text="Les contrôles déterministes sont terminés.",
+                provider_name="internal",
+                model_name="controlled-response",
+                finish_reason="controlled_response",
+                tool_calls=(),
+            ),
+        ),
+    )
+    orchestrator = _create_orchestrator(tmp_path, model)
 
     result = orchestrator.run(
         AgentRunRequest(
@@ -565,13 +955,37 @@ def test_orchestrator_renders_ledger_query_without_llm_narration(
     assert "Correspondances : 1" in result.answer
     assert "| 601000 |" in result.answer
     assert "Les controles deterministes sont termines" not in result.answer
+    assert model.calls == 2
 
 
 def test_orchestrator_warns_on_prefix_only_account_query(
     tmp_path: Path,
 ) -> None:
     workbook_path = write_minified_grand_livre(tmp_path)
-    orchestrator = _create_orchestrator(tmp_path, InternalControlledModelProvider())
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text="",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="tool_calls",
+                tool_calls=(
+                    ToolCall(
+                        name="query_ledger_entries",
+                        arguments={"filters": {"account": "601"}},
+                    ),
+                ),
+            ),
+            ModelResponse(
+                text="Les contrôles déterministes sont terminés.",
+                provider_name="internal",
+                model_name="controlled-response",
+                finish_reason="controlled_response",
+                tool_calls=(),
+            ),
+        ),
+    )
+    orchestrator = _create_orchestrator(tmp_path, model)
 
     result = orchestrator.run(
         AgentRunRequest(
@@ -585,13 +999,29 @@ def test_orchestrator_warns_on_prefix_only_account_query(
     assert "Alerte filtre" in result.answer
     assert "Aucun compte exact 601" in result.answer
     assert "601000" in result.answer
+    assert model.calls == 2
 
 
 def test_orchestrator_asks_for_precision_on_ambiguous_total_question(
     tmp_path: Path,
 ) -> None:
     workbook_path = write_minified_grand_livre(tmp_path)
-    orchestrator = _create_orchestrator(tmp_path, InternalControlledModelProvider())
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text=(
+                    "La demande est trop ambigue: precise la metrique "
+                    "(somme brute, debit, credit ou solde), le perimetre "
+                    "et la devise."
+                ),
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="stop",
+                tool_calls=(),
+            ),
+        ),
+    )
+    orchestrator = _create_orchestrator(tmp_path, model)
 
     result = orchestrator.run(
         AgentRunRequest(
@@ -603,10 +1033,11 @@ def test_orchestrator_asks_for_precision_on_ambiguous_total_question(
     )
 
     assert result.tool_results == ()
-    assert result.provider_name == "internal"
-    assert result.model_name == "deterministic-clarification"
+    assert result.provider_name == "fake"
+    assert result.model_name == "fake-model"
     assert "demande est trop ambigue" in result.answer
     assert "somme brute" in result.answer
+    assert model.calls == 1
 
 
 def test_orchestrator_routes_general_excel_explanation_to_analysis_tools(
@@ -615,6 +1046,22 @@ def test_orchestrator_routes_general_excel_explanation_to_analysis_tools(
     workbook_path = write_minified_grand_livre(tmp_path)
     model = FakeModelProvider(
         responses=(
+            ModelResponse(
+                text="",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="tool_calls",
+                tool_calls=(
+                    ToolCall(name="analyze_ledger", arguments={}),
+                    ToolCall(name="calculate_ledger_metrics", arguments={}),
+                    ToolCall(
+                        name="aggregate_ledger",
+                        arguments={"group_by": ["account"]},
+                    ),
+                    ToolCall(name="detect_data_quality_issues", arguments={}),
+                    ToolCall(name="detect_tax_candidates", arguments={}),
+                ),
+            ),
             ModelResponse(
                 text="Le fichier est un Grand Livre de 4 lignes avec des contrôles.",
                 provider_name="fake",
@@ -649,8 +1096,8 @@ def test_orchestrator_routes_general_excel_explanation_to_analysis_tools(
         "detect_data_quality_issues",
         "detect_tax_candidates",
     ]
-    assert model.calls == 1
-    final_context = model.requests[0].messages[-1].content
+    assert model.calls == 2
+    final_context = model.requests[1].messages[-1].content
     assert "analyze_ledger" in final_context
     assert "calculate_ledger_metrics" in final_context
     assert "aggregate_ledger" in final_context
@@ -888,7 +1335,9 @@ def test_orchestrator_returns_internal_model_for_direct_tool_call(
         ),
     )
 
-    assert result.answer == "L'analyse déterministe du Grand Livre est terminée."
+    assert result.answer == (
+        "Analyse de la feuille Excel terminée: 4 lignes, 5 colonnes."
+    )
     assert result.tool_results[0].ok is True
     assert result.provider_name == "internal"
     assert result.model_name == "direct-tool-call"

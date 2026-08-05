@@ -151,6 +151,12 @@ def test_reconstruct_accounting_entry_never_groups_on_amount() -> None:
     reconstruction = registry.get("reconstruct_accounting_entry")
 
     assert reconstruction is not None
+    assert "numero de piece/document" in reconstruction.description
+    assert "entry_selector" in reconstruction.input_schema["properties"]
+    selector_schema = reconstruction.input_schema["properties"]["entry_selector"]
+    assert selector_schema["additionalProperties"] is False
+    assert "document_number" in selector_schema["properties"]
+    assert "selected_entry" in reconstruction.output_schema["properties"]
     assert "explicit_accounting_key" in reconstruction.safeguards
     assert "no_amount_based_grouping" in reconstruction.safeguards
     assert "never_return_cell_values" in reconstruction.safeguards
@@ -162,6 +168,12 @@ def test_find_ras_counterpart_keeps_related_entries_unconfirmed() -> None:
     counterpart = registry.get("find_ras_counterpart")
 
     assert counterpart is not None
+    assert "contrepartie RAS" in counterpart.description
+    assert "detected_candidate_piece_count" in counterpart.output_schema["properties"]
+    assert "counterpart_scope_exclusion_count" in counterpart.output_schema[
+        "properties"
+    ]
+    assert "counterpart_scope_basis" in counterpart.output_schema["properties"]
     assert "same_entry_first" in counterpart.safeguards
     assert "potential_related_not_confirmed" in counterpart.safeguards
     assert "configured_account_mapping_only" in counterpart.safeguards
@@ -177,6 +189,8 @@ def test_detect_ras_candidates_is_piece_level_and_review_only() -> None:
     assert "review_only" in detection.safeguards
     assert "no_tax_decision" in detection.safeguards
     assert "never_return_cell_values" in detection.safeguards
+    assert "column_mapping" in detection.input_schema["properties"]
+    assert "filters" in detection.input_schema["properties"]
     assert "soumisRas" not in detection.output_schema["properties"]
     assert "tax_category" not in detection.output_schema["properties"]
     assert "tax_rate" not in detection.output_schema["properties"]
@@ -288,3 +302,11 @@ def test_all_ras_tool_schemas_are_closed_and_resource_bounds_are_explicit() -> N
             "minimum": 0,
             "maximum": 366,
         }
+
+
+def test_generate_ras_audit_report_description_tells_model_audit_id_is_enough() -> None:
+    definition = create_excel_tool_registry().get("generate_ras_audit_report")
+
+    assert definition is not None
+    assert "audit_id est l'entree suffisante" in definition.description
+    assert "ne pas demander de faits" in definition.description

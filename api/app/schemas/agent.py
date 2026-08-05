@@ -122,6 +122,7 @@ class AgentFileDashboardResponse(BaseModel):
     amount_metrics_by_currency: dict[str, dict[str, float | int]] = Field(
         default_factory=dict,
     )
+    business_balances_by_nature: list[dict[str, Any]] = Field(default_factory=list)
     charts: list[AgentDashboardChartResponse]
     quality: dict[str, Any]
 

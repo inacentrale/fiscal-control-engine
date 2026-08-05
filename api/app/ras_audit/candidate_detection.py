@@ -66,6 +66,8 @@ class RasCandidateDetectionReport:
 class RasCandidateDetectionToolReport:
     sheet_name: str
     source_row_count: int
+    filtered_row_count: int
+    filters: dict[str, object]
     rejected_row_count: int
     normalization_issue_codes: tuple[str, ...]
     ledger_entries: tuple[CanonicalLedgerEntry, ...]

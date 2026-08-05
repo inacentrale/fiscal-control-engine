@@ -75,7 +75,24 @@ def test_active_rag_scope_keeps_only_finance_law_2026() -> None:
     assert indexed_law_years == {2024, 2025, 2026}
 
 
-def test_hybrid_reranking_resolves_a_natural_language_lexical_ambiguity() -> None:
+def test_ranks_current_resident_ifu_rate_source_first() -> None:
+    result = TaxRagQueryService(SOURCES).query(
+        (
+            "Quel est le taux RAS pour une prestation de services rendue par "
+            "un prestataire resident immatricule IFU au Burkina Faso en 2026 ?"
+        ),
+        limit=5,
+        as_of_date=date(2026, 1, 1),
+    )
+
+    citation = result.citations[0]
+    assert citation.article_or_section == "article 15 modifiant CGI article 207"
+    assert "Loi de finances 2026" in citation.title
+    assert "5 %" in citation.passage
+    assert "IFU" in citation.passage
+
+
+def test_reranking_resolves_a_natural_language_lexical_ambiguity() -> None:
     question = (
         "Retrouver le passage qui traite des prestations realisees par un "
         "fournisseur non resident."
@@ -89,7 +106,7 @@ def test_hybrid_reranking_resolves_a_natural_language_lexical_ambiguity() -> Non
         ),
     ).query(question, limit=1)
 
-    assert lexical.citations[0].article_or_section != "articles 210 et 211"
+    assert lexical.citations[0].article_or_section == "articles 210 et 211"
     assert hybrid.citations[0].article_or_section == "articles 210 et 211"
     assert hybrid.retrieval_mode == "lexical_vector_rerank"
     assert hybrid.retrieval_policy_version == "tax-rag-hybrid-rerank-v1"

@@ -1,18 +1,12 @@
 import json
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
 from typing import Protocol
-from unicodedata import normalize
 
 from app.agent.answer_policy import AgentAnswerPolicy
 from app.agent.constants import AGENT_RUN_TIMEOUT_ANSWER
-from app.agent.tool_router import (
-    DeterministicToolRouteRequest,
-    route_deterministic_tool_calls,
-)
 from app.excel_agent.domain import ToolExecutionResult
 from app.excel_agent.tool_executor import ExcelToolExecutor
 from app.llm.domain import (
@@ -130,7 +124,7 @@ class AgentOrchestrator:
             )
             emit(_tool_finished_event(tool_result))
             answer = (
-                "L'analyse déterministe du Grand Livre est terminée."
+                _deterministic_tool_results_answer((tool_result,))
                 if tool_result.ok
                 else "L'analyse déterministe du Grand Livre a échoué."
             )
@@ -150,119 +144,6 @@ class AgentOrchestrator:
                 model_name="direct-tool-call",
                 execution_events=tuple(events),
                 tool_results=(tool_result,),
-            )
-        routed_tool_calls = route_deterministic_tool_calls(
-            DeterministicToolRouteRequest(
-                user_message=request.user_message,
-                file_path=request.file_path,
-                sheet_name=request.sheet_name,
-                allowed_tools=request.allowed_tools,
-            ),
-        )
-        if routed_tool_calls:
-            stable_tool_results = self._execute_tool_calls(
-                tool_calls=routed_tool_calls[: self._max_tool_calls],
-                request=request,
-                emit=emit,
-                provider_name="internal",
-                model_name="deterministic-tool-router",
-            )
-            followup_call = _single_candidate_ras_followup(
-                stable_tool_results,
-                request,
-            )
-            if (
-                followup_call is not None
-                and len(stable_tool_results) < self._max_tool_calls
-            ):
-                followup_results = self._execute_tool_calls(
-                    tool_calls=(followup_call,),
-                    request=request,
-                    emit=emit,
-                    provider_name="internal",
-                    model_name="deterministic-ras-chain",
-                )
-                stable_tool_results = (*stable_tool_results, *followup_results)
-            if self._has_timed_out(started_at):
-                return _timeout_result(tuple(events))
-            if any(not result.ok for result in stable_tool_results):
-                emit(
-                    AgentRunEvent(
-                        event_type="run_failed",
-                        title="Analyse arrêtée",
-                        message="L'analyse demandée ne peut pas être exécutée.",
-                        status="error",
-                        provider_name="internal",
-                        model_name="deterministic-tool-router",
-                    ),
-                )
-                return AgentRunResult(
-                    answer="Le tool call a ete refuse par les garde-fous.",
-                    provider_name="internal",
-                    model_name="deterministic-tool-router",
-                    execution_events=tuple(events),
-                    tool_results=stable_tool_results,
-                )
-            secure_answer = _secure_deterministic_answer(stable_tool_results)
-            if secure_answer is not None:
-                emit(
-                    AgentRunEvent(
-                        event_type="answer_ready",
-                        title="Reponse prete",
-                        message="Reponse prete.",
-                        status="completed",
-                        provider_name="internal",
-                        model_name="deterministic-fiscal-answer",
-                    ),
-                )
-                return AgentRunResult(
-                    answer=secure_answer,
-                    provider_name="internal",
-                    model_name="deterministic-fiscal-answer",
-                    execution_events=tuple(events),
-                    tool_results=stable_tool_results,
-                )
-            emit(
-                AgentRunEvent(
-                    event_type="model_requested",
-                    title="Réponse en cours",
-                    message="Préparation de la réponse.",
-                    status="running",
-                    provider_name=self._model_provider.provider_name,
-                ),
-            )
-            final_response = self._model_provider.generate(
-                _final_model_request(request, stable_tool_results),
-            )
-            _emit_fallback_if_needed(
-                provider_name=self._model_provider.provider_name,
-                response_provider_name=final_response.provider_name,
-                response_model_name=final_response.model_name,
-                emit=emit,
-            )
-            if self._has_timed_out(started_at):
-                return _timeout_result(tuple(events))
-            answer = _final_answer_from_model_or_tools(
-                final_response=final_response,
-                tool_results=stable_tool_results,
-                answer_policy=self._answer_policy,
-            )
-            emit(
-                AgentRunEvent(
-                    event_type="answer_ready",
-                    title="Réponse prête",
-                    message="Réponse prête.",
-                    status="completed",
-                    provider_name=final_response.provider_name,
-                    model_name=final_response.model_name,
-                ),
-            )
-            return AgentRunResult(
-                answer=answer,
-                provider_name=final_response.provider_name,
-                model_name=final_response.model_name,
-                execution_events=tuple(events),
-                tool_results=stable_tool_results,
             )
         initial_model_request = _initial_model_request(
             request,
@@ -289,87 +170,12 @@ class AgentOrchestrator:
         if self._has_timed_out(started_at):
             return _timeout_result(tuple(events))
         if not initial_response.tool_calls:
-            clarification_answer = _ambiguous_file_question_answer(request)
-            if clarification_answer is not None:
-                emit(
-                    AgentRunEvent(
-                        event_type="answer_ready",
-                        title="Precision requise",
-                        message="Precision requise pour calculer le resultat.",
-                        status="completed",
-                        provider_name="internal",
-                        model_name="deterministic-clarification",
-                    ),
-                )
-                return AgentRunResult(
-                    answer=clarification_answer,
-                    provider_name="internal",
-                    model_name="deterministic-clarification",
-                    execution_events=tuple(events),
-                    tool_results=(),
-                )
-            deterministic_tool_call = _default_file_tool_call(request)
-            if deterministic_tool_call is not None:
-                emit(
-                    AgentRunEvent(
-                        event_type="tool_requested",
-                        title="Analyse préparée",
-                        message=(
-                            f"{_tool_user_label(deterministic_tool_call.name)} prête."
-                        ),
-                        status="completed",
-                        tool_name=deterministic_tool_call.name,
-                        provider_name=initial_response.provider_name,
-                        model_name=initial_response.model_name,
-                    ),
-                )
-                emit(_tool_started_event(deterministic_tool_call.name))
-                tool_result = self._execute_allowed_tool_call(
-                    deterministic_tool_call,
-                    request,
-                )
-                emit(_tool_finished_event(tool_result))
-                if not tool_result.ok:
-                    emit(
-                        AgentRunEvent(
-                            event_type="run_failed",
-                            title="Analyse arrêtée",
-                            message="L'analyse demandée ne peut pas être exécutée.",
-                            status="error",
-                            provider_name=initial_response.provider_name,
-                            model_name=initial_response.model_name,
-                        ),
-                    )
-                    return AgentRunResult(
-                        answer="Le tool call a ete refuse par les garde-fous.",
-                        provider_name=initial_response.provider_name,
-                        model_name=initial_response.model_name,
-                        execution_events=tuple(events),
-                        tool_results=(tool_result,),
-                    )
-                emit(
-                    AgentRunEvent(
-                        event_type="answer_ready",
-                        title="Réponse prête",
-                        message="Réponse prête.",
-                        status="completed",
-                        provider_name="internal",
-                        model_name="deterministic-excel-analysis",
-                    ),
-                )
-                return AgentRunResult(
-                    answer=_deterministic_tool_answer(tool_result),
-                    provider_name="internal",
-                    model_name="deterministic-excel-analysis",
-                    execution_events=tuple(events),
-                    tool_results=(tool_result,),
-                )
             answer = self._answer_policy.apply(initial_response.text).answer
             emit(
                 AgentRunEvent(
                     event_type="answer_ready",
-                    title="Réponse prête",
-                    message="Réponse prête.",
+                    title="Reponse prete",
+                    message="Reponse prete.",
                     status="completed",
                     provider_name=initial_response.provider_name,
                     model_name=initial_response.model_name,
@@ -648,6 +454,33 @@ def _tool_result_summary(tool_result: ToolExecutionResult) -> str:
         if isinstance(candidate_count, int):
             return f"{candidate_count} pièce(s) candidate(s) RAS à revoir."
         return "La détection des candidats RAS est terminée."
+    if tool_result.tool_name == "find_ras_counterpart":
+        status_counts = tool_result.output.get("status_counts")
+        if isinstance(status_counts, dict):
+            return (
+                f"{status_counts.get('found_in_same_entry', 0)} pièce(s) avec "
+                "contrepartie RAS dans la même pièce; "
+                f"{status_counts.get('indeterminate', 0)} indéterminée(s)."
+            )
+        return "La recherche de contrepartie RAS est terminée."
+    if tool_result.tool_name == "reconstruct_accounting_entry":
+        selected_found = tool_result.output.get("selected_entry_found")
+        selected_entry = tool_result.output.get("selected_entry")
+        if selected_found is True and isinstance(selected_entry, dict):
+            line_count = selected_entry.get("line_count")
+            return f"PiÃ¨ce comptable reconstituÃ©e: {line_count} ligne(s)."
+        if selected_found is False:
+            return "La piÃ¨ce comptable demandÃ©e n'a pas Ã©tÃ© retrouvÃ©e."
+        entry_count = tool_result.output.get("entry_count")
+        if isinstance(entry_count, int):
+            return f"{entry_count} piÃ¨ce(s) comptable(s) reconstituÃ©e(s)."
+        return "La reconstitution des piÃ¨ces comptables est terminÃ©e."
+    if tool_result.tool_name == "generate_ras_audit_report":
+        case_count = tool_result.output.get("case_count")
+        report_id = tool_result.output.get("report_id")
+        if isinstance(case_count, int) and isinstance(report_id, str):
+            return f"Rapport RAS genere: {case_count} cas, report_id {report_id}."
+        return "Le rapport d'audit RAS est genere."
     if tool_result.tool_name == "list_sheets":
         sheet_count = len(tool_result.output.get("sheet_names", ()))
         return f"{sheet_count} feuille(s) détectée(s) dans le fichier."
@@ -663,34 +496,6 @@ def _rows_columns_summary(prefix: str, output: dict[str, object]) -> str:
     if isinstance(row_count, int) and isinstance(column_count, int):
         return f"{prefix}: {row_count} lignes, {column_count} colonnes."
     return f"{prefix}."
-
-
-def _default_file_tool_call(request: AgentRunRequest) -> ToolCall | None:
-    if request.file_path is None:
-        return None
-    if request.sheet_name is not None:
-        if "analyze_ledger" in request.allowed_tools:
-            return ToolCall(
-                name="analyze_ledger",
-                arguments={
-                    "file_path": str(request.file_path),
-                    "sheet_name": request.sheet_name,
-                },
-            )
-        if "profile_sheet" in request.allowed_tools:
-            return ToolCall(
-                name="profile_sheet",
-                arguments={
-                    "file_path": str(request.file_path),
-                    "sheet_name": request.sheet_name,
-                },
-            )
-    if "list_sheets" in request.allowed_tools:
-        return ToolCall(
-            name="list_sheets",
-            arguments={"file_path": str(request.file_path)},
-        )
-    return None
 
 
 def _deterministic_tool_answer(tool_result: ToolExecutionResult) -> str:
@@ -729,6 +534,7 @@ def _deterministic_tool_results_answer(
         return query_answer
     for tool_name in (
         "detect_ras_candidates",
+        "reconstruct_accounting_entry",
         "detect_tax_candidates",
         "detect_data_quality_issues",
         "analyze_ledger",
@@ -769,6 +575,7 @@ def _ras_tool_answer(
                 "resolve_applicable_ras_rule",
                 "run_ras_audit_batch",
                 "find_ras_counterpart",
+                "generate_ras_audit_report",
             }
         ),
         None,
@@ -851,14 +658,55 @@ def _ras_tool_answer(
                 "Cet inventaire ne constitue pas une conclusion declarative.",
             )
         )
+    if result.tool_name == "generate_ras_audit_report":
+        return "\n".join(
+            (
+                "**Rapport d'audit RAS**",
+                "",
+                f"- Report ID : {output.get('report_id') or 'non renseigne'}",
+                f"- Cas analyses : {output.get('case_count', 0)}",
+                f"- Statuts : {_ras_count_map(output.get('status_counts'))}",
+                f"- Certitudes : {_ras_count_map(output.get('certainty_counts'))}",
+                f"- Montants theoriques rapproches : "
+                f"{_ras_summary_list(output.get('amount_summaries'))}",
+                f"- Montants comptabilises observes : "
+                f"{_ras_summary_list(output.get('recorded_amount_summaries'))}",
+                f"- Referentiels : {_ras_list(output.get('reference_versions'))}",
+                "",
+                "Ce rapport est genere depuis les cas RAS persistés et ne "
+                "constitue pas une conclusion declarative.",
+            )
+        )
+    raw_status_counts = output.get("status_counts")
+    status_counts: dict[str, object] = (
+        raw_status_counts if isinstance(raw_status_counts, dict) else {}
+    )
     return "\n".join(
         (
             "**Recherche de contrepartie RAS**",
             "",
-            f"- Pieces candidates : {output.get('candidate_piece_count', 0)}",
+            f"- Candidats detectes au sens large : "
+            f"{output.get('detected_candidate_piece_count') or 'non calcule'}",
+            f"- Pieces analysees pour contrepartie : "
+            f"{output.get('candidate_piece_count', 0)}",
+            f"- Hors scope rapprochement : "
+            f"{output.get('counterpart_scope_exclusion_count') or 0}",
+            f"- RAS trouvee dans la meme piece : "
+            f"{status_counts.get('found_in_same_entry', 0)}",
+            f"- RAS potentiellement liee : "
+            f"{status_counts.get('potential_related_entry', 0)}",
+            f"- RAS non trouvee dans le perimetre : "
+            f"{status_counts.get('not_found_in_scope', 0)}",
+            f"- Indeterminees : {status_counts.get('indeterminate', 0)}",
+            f"- Montants RAS confirmes : "
+            f"{_ras_amount_map(output.get('confirmed_amounts_by_currency'))}",
+            f"- Informations manquantes : "
+            f"{_ras_count_map(output.get('missing_fact_counts'))}",
             f"- Perimetre technique complet : "
             f"{'oui' if output.get('source_scope_complete') is True else 'non'}",
             f"- Blocages : {_ras_list(output.get('source_scope_blockers'))}",
+            "",
+            f"Note de perimetre : {output.get('counterpart_scope_basis')}",
         )
     )
 
@@ -891,6 +739,44 @@ def _ras_amount(value: object, output: dict[str, object]) -> str:
     return str(value)
 
 
+def _ras_amount_map(value: object) -> str:
+    if not isinstance(value, dict) or not value:
+        return "aucun"
+    return ", ".join(
+        f"{amount} {currency}" for currency, amount in sorted(value.items())
+    )
+
+
+def _ras_count_map(value: object) -> str:
+    if not isinstance(value, dict) or not value:
+        return "aucune"
+    return ", ".join(f"{key}: {count}" for key, count in sorted(value.items()))
+
+
+def _ras_summary_list(value: object) -> str:
+    if not isinstance(value, list) or not value:
+        return "aucun"
+    parts: list[str] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        currency = item.get("currency") or "devise inconnue"
+        count = item.get("case_count") or 0
+        certainty = item.get("certainty") or "certitude inconnue"
+        if item.get("expected_amount") is not None:
+            parts.append(
+                f"{currency}/{certainty}: {count} cas, attendu "
+                f"{item.get('expected_amount')}, comptabilise "
+                f"{item.get('recorded_amount')}, ecart {item.get('difference')}"
+            )
+        elif item.get("recorded_amount") is not None:
+            parts.append(
+                f"{currency}/{certainty}: {count} cas, comptabilise "
+                f"{item.get('recorded_amount')}"
+            )
+    return "; ".join(parts) if parts else "aucun"
+
+
 def _ras_list(value: object) -> str:
     if not isinstance(value, list | tuple) or not value:
         return "aucun"
@@ -902,21 +788,10 @@ def _final_answer_from_model_or_tools(
     tool_results: tuple[ToolExecutionResult, ...],
     answer_policy: AgentAnswerPolicy,
 ) -> str:
-    secure_answer = _secure_deterministic_answer(tool_results)
-    if secure_answer is not None:
-        return secure_answer
-    balance_answer = _balance_reconciliation_answer(tool_results)
-    if balance_answer is not None:
-        return balance_answer
-    aggregation_answer = _aggregation_reconciliation_answer(tool_results)
-    if aggregation_answer is not None:
-        return aggregation_answer
-    query_answer = _ledger_query_answer(tool_results)
-    if query_answer is not None:
-        return query_answer
-    if _is_controlled_internal_response(final_response):
-        return _deterministic_tool_results_answer(tool_results)
-    if not final_response.text.strip():
+    if (
+        _is_controlled_internal_response(final_response)
+        or not final_response.text.strip()
+    ):
         return _deterministic_tool_results_answer(tool_results)
     return answer_policy.apply(final_response.text).answer
 
@@ -1318,68 +1193,6 @@ def _is_controlled_internal_response(response: ModelResponse) -> bool:
     return response.provider_name in {"internal", "internal-fallback"}
 
 
-def _ambiguous_file_question_answer(request: AgentRunRequest) -> str | None:
-    if request.file_path is None or request.sheet_name is None:
-        return None
-    message = _normalize_for_ambiguity(request.user_message)
-    if not _looks_like_ambiguous_metric_question(message):
-        return None
-    return (
-        "La demande est trop ambigue pour calculer un montant fiable.\n\n"
-        "Precise au minimum la metrique attendue, par exemple : somme brute, "
-        "total debit, total credit ou solde. Ajoute aussi le perimetre si "
-        "necessaire : compte, exercice, periode et devise."
-    )
-
-
-def _looks_like_ambiguous_metric_question(message: str) -> bool:
-    asks_metric = any(
-        phrase in message
-        for phrase in (
-            "quel est le total",
-            "donne le total",
-            "calcule le total",
-            "total de",
-            "total du",
-            "analyse les charges",
-        )
-    )
-    if not asks_metric:
-        return False
-    has_explicit_metric = any(
-        phrase in message
-        for phrase in (
-            "somme brute",
-            "total debit",
-            "total credit",
-            "solde",
-            "nombre",
-            "moyenne",
-            "min",
-            "max",
-        )
-    )
-    has_grouping = any(
-        phrase in message
-        for phrase in (
-            "par compte",
-            "par periode",
-            "par devise",
-            "par fournisseur",
-            "par client",
-            "par type",
-        )
-    )
-    has_account = re.search(r"\bcompte\s+\d{3,12}\b", message) is not None
-    return not (has_explicit_metric or has_grouping or has_account)
-
-
-def _normalize_for_ambiguity(value: str) -> str:
-    without_accents = normalize("NFKD", value)
-    ascii_value = without_accents.encode("ascii", "ignore").decode("ascii")
-    return " ".join(re.sub(r"[^a-zA-Z0-9]+", " ", ascii_value.lower()).split())
-
-
 def normalize_answer_summary(message: str) -> str:
     return message.replace(
         "L'analyse de la feuille Excel est terminée:",
@@ -1405,7 +1218,36 @@ def _initial_model_request(
                 "doit venir du tool deterministe correspondant. Reponds en "
                 "Markdown clair avec des paragraphes courts. Pour une reponse "
                 "simple, n'ajoute pas de titre comme Introduction. Evite les "
-                "formulations a la premiere personne."
+                "formulations a la premiere personne. Choisis toujours le tool "
+                "le plus specifique a la question finale de l'utilisateur, pas "
+                "un tool preparatoire. Si l'utilisateur demande "
+                "d'afficher, lister ou rechercher des ecritures detaillees du "
+                "Grand Livre, utilise query_ledger_entries. Si l'utilisateur "
+                "demande un solde, un total, un debit ou un credit, utilise "
+                "calculate_ledger_metrics. Si l'utilisateur demande une "
+                "structure, des colonnes ou le mapping d'une feuille, utilise "
+                "classify_ledger_schema ou get_columns. Si l'utilisateur "
+                "demande de reconstituer, controler ou analyser une piece "
+                "comptable precise par numero de piece, utilise "
+                "reconstruct_accounting_entry avec entry_selector. N'utilise "
+                "pas query_ledger_entries pour un numero de piece/document, "
+                "car ce tool ne filtre pas les numeros de piece. Si "
+                "l'utilisateur demande une contrepartie RAS, une RAS "
+                "comptabilisee dans la meme piece ou un rapprochement entre "
+                "depense candidate et compte RAS, utilise find_ras_counterpart. "
+                "Une question du type 'les pieces candidates RAS ont-elles une "
+                "contrepartie' doit appeler find_ras_counterpart directement. "
+                "N'utilise detect_ras_candidates que pour inventorier les "
+                "candidats RAS, jamais pour verifier leur contrepartie. "
+                "Si l'utilisateur pose une question juridique ou fiscale sur "
+                "un taux, un article, le CGI, une loi de finances, un delai, "
+                "une condition, une exemption ou le champ d'application d'une "
+                "retenue, utilise query_tax_rag, meme s'il ne demande pas "
+                "explicitement les sources indexees. Si l'utilisateur demande "
+                "un rapport, une synthese ou un export d'un audit RAS avec un "
+                "audit_id, utilise generate_ras_audit_report. L'audit_id suffit "
+                "pour retrouver les cas deja persistés; ne redemande pas les "
+                "faits, la juridiction ou le fichier pour cette generation."
             ),
         ),
         ModelMessage(role="user", content=request.user_message),
@@ -1436,8 +1278,73 @@ def _initial_model_request(
         temperature=0.0,
         max_output_tokens=1200,
         timeout_seconds=30.0,
-        tool_definitions=tool_definitions,
+        tool_definitions=_server_context_aware_tool_definitions(
+            request,
+            tool_definitions,
+        ),
     )
+
+
+def _server_context_aware_tool_definitions(
+    request: AgentRunRequest,
+    tool_definitions: tuple[ModelToolDefinition, ...],
+) -> tuple[ModelToolDefinition, ...]:
+    if request.file_path is None:
+        return tool_definitions
+    return tuple(
+        ModelToolDefinition(
+            name=definition.name,
+            description=definition.description,
+            input_schema=_without_server_injected_properties(
+                definition.input_schema,
+                inject_sheet=request.sheet_name is not None,
+                model_hidden_properties=_model_hidden_properties(definition.name),
+            ),
+        )
+        for definition in tool_definitions
+    )
+
+
+def _without_server_injected_properties(
+    input_schema: dict[str, object],
+    *,
+    inject_sheet: bool,
+    model_hidden_properties: set[str] | None = None,
+) -> dict[str, object]:
+    schema = dict(input_schema)
+    raw_properties = schema.get("properties")
+    if isinstance(raw_properties, dict):
+        removed_properties = {"file_path"}
+        if inject_sheet:
+            removed_properties.add("sheet_name")
+        if model_hidden_properties:
+            removed_properties.update(model_hidden_properties)
+        schema["properties"] = {
+            key: value
+            for key, value in raw_properties.items()
+            if key not in removed_properties
+        }
+    raw_required = schema.get("required")
+    if isinstance(raw_required, list):
+        removed_required = {"file_path"}
+        if inject_sheet:
+            removed_required.add("sheet_name")
+        if model_hidden_properties:
+            removed_required.update(model_hidden_properties)
+        schema["required"] = [
+            field for field in raw_required if field not in removed_required
+        ]
+    return schema
+
+
+def _model_hidden_properties(tool_name: str) -> set[str]:
+    if tool_name in {
+        "detect_ras_candidates",
+        "find_ras_counterpart",
+        "reconstruct_accounting_entry",
+    }:
+        return {"column_mapping"}
+    return set()
 
 
 def _with_request_context(
@@ -1505,8 +1412,10 @@ def _final_model_request(
     request: AgentRunRequest,
     tool_results: tuple[ToolExecutionResult, ...],
 ) -> ModelRequest:
+    has_tax_rag_only = bool(tool_results) and all(
+        result.tool_name == "query_tax_rag" for result in tool_results
+    )
     sensitive_tool_names = {
-        "query_tax_rag",
         "normalize_gl",
         "assess_gl_readiness",
         "reconstruct_accounting_entry",
@@ -1519,20 +1428,41 @@ def _final_model_request(
         "assess_ras_accounting",
         "generate_ras_audit_report",
     }
-    user_context = (
-        "Explique uniquement le resultat structure du controle fiscal demande."
-        if any(result.tool_name in sensitive_tool_names for result in tool_results)
-        else request.user_message
-    )
+    if has_tax_rag_only:
+        user_context = request.user_message
+    elif any(result.tool_name in sensitive_tool_names for result in tool_results):
+        user_context = (
+            "Explique uniquement le resultat structure du controle fiscal demande."
+        )
+    else:
+        user_context = request.user_message
     return ModelRequest(
         messages=(
             ModelMessage(
                 role="system",
                 content=(
                     "Redige une reponse courte a partir des resultats de tools. "
-                    "Pour query_tax_rag, cite article, version et URL et presente "
-                    "le resultat comme information documentaire, jamais comme "
-                    "calcul ou decision fiscale. "
+                    "Pour query_tax_rag, commence par une reponse directe en "
+                    "une phrase quand les citations contiennent clairement "
+                    "l'information demandee. Cite ensuite 1 a 3 sources les "
+                    "plus pertinentes avec article, version et URL. Ecarte les "
+                    "citations hors cas, par exemple non-resident ou loyers si "
+                    "la question porte sur un prestataire resident. Si les "
+                    "sources ne suffisent pas, dis-le. Presente le resultat "
+                    "comme information documentaire, jamais comme calcul ou "
+                    "decision fiscale. "
+                    "Pour reconstruct_accounting_entry, presente le numero de "
+                    "piece, l'exercice, le journal, l'equilibrage, les totaux "
+                    "debit/credit par devise et les lignes retournees. "
+                    "Pour find_ras_counterpart, presente les pieces analysees, "
+                    "les contreparties trouvees, les cas indetermines, les "
+                    "montants confirmes par devise et les limites de perimetre. "
+                    "Pour generate_ras_audit_report, presente report_id, audit_id "
+                    "si disponible, nombre de cas, statuts, certitudes, montants "
+                    "theoriques rapproches par devise si disponibles, montants "
+                    "comptabilises observes par devise, versions de referentiels "
+                    "et limites; ne demande pas de faits supplementaires si le "
+                    "tool a reussi. "
                     "Utilise du Markdown lisible: paragraphes courts, listes "
                     "a puces si utile, tableaux simples seulement si cela clarifie. "
                     "Pour une reponse simple, n'ajoute pas de titre comme "
@@ -1578,9 +1508,16 @@ def _compact_tool_output(tool_result: ToolExecutionResult) -> dict[str, object]:
         "sheet_names",
         "sheet_name",
         "row_count",
+        "entry_count",
+        "balanced_count",
+        "unbalanced_count",
         "column_count",
         "schema",
         "columns",
+        "report_id",
+        "source_sha256",
+        "generated_at",
+        "case_count",
         "issue_count",
         "severity_counts",
         "issues",
@@ -1592,6 +1529,12 @@ def _compact_tool_output(tool_result: ToolExecutionResult) -> dict[str, object]:
         "balance_interpretation",
         "metrics_by_currency",
         "balance_reconciliation",
+        "selector",
+        "selected_entry_found",
+        "selected_entry",
+        "detected_candidate_piece_count",
+        "counterpart_scope_exclusion_count",
+        "counterpart_scope_basis",
         "total_matches",
         "filters",
         "filter_warnings",
@@ -1609,6 +1552,18 @@ def _compact_tool_output(tool_result: ToolExecutionResult) -> dict[str, object]:
         "indeterminate_count",
         "remaining_candidate_count",
         "status_counts",
+        "certainty_counts",
+        "amount_summaries",
+        "recorded_amount_summaries",
+        "details",
+        "reference_versions",
+        "confirmed_amounts_by_currency",
+        "potential_related_amounts_by_currency",
+        "potential_adjustments_by_currency",
+        "missing_fact_counts",
+        "source_scope_complete",
+        "source_scope_blockers",
+        "source_scope_policy_version",
         "status",
         "legal_resolution_status",
         "calculation_status",

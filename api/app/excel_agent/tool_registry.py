@@ -79,6 +79,7 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                     "properties": {
                         "file_path": {"type": "string"},
                         "sheet_name": {"type": "string"},
+                        "column_mapping": {"type": "object"},
                     },
                 },
                 output_schema={
@@ -101,7 +102,10 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                 description=(
                     "Detecte le sens des colonnes d'une feuille Grand Livre "
                     "et les mappe vers un schema canonique sans exposer "
-                    "les valeurs des cellules."
+                    "les valeurs des cellules. Utiliser seulement pour une "
+                    "question sur la structure, les colonnes ou la capacite "
+                    "d'analyse du fichier; ne pas utiliser pour afficher des "
+                    "ecritures filtrees."
                 ),
                 input_schema={
                     "type": "object",
@@ -199,18 +203,37 @@ def create_excel_tool_registry() -> AgentToolRegistry:
             AgentToolDefinition(
                 name="query_ledger_entries",
                 description=(
-                    "Filtre les ecritures du Grand Livre avec pagination stricte "
-                    "et colonnes de sortie autorisees uniquement."
+                    "Affiche, liste ou recherche des ecritures comptables du "
+                    "Grand Livre selon des filtres explicites: account, period, "
+                    "fiscal_year, tax_code, vendor, customer, amount_min ou "
+                    "amount_max. Utiliser ce tool quand l'utilisateur demande "
+                    "des lignes/ecritures detaillees, pas seulement un total. "
+                    "Ne pas utiliser pour une demande sur un numero de piece "
+                    "ou document comptable: utiliser reconstruct_accounting_entry."
                 ),
                 input_schema={
                     "type": "object",
                     "required": ["file_path", "sheet_name"],
+                    "additionalProperties": False,
                     "properties": {
                         "file_path": {"type": "string"},
                         "sheet_name": {"type": "string"},
-                        "filters": {"type": "object"},
+                        "filters": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "account": {"type": ["string", "integer"]},
+                                "period": {"type": ["string", "integer"]},
+                                "fiscal_year": {"type": ["string", "integer"]},
+                                "tax_code": {"type": "string"},
+                                "vendor": {"type": ["string", "integer"]},
+                                "customer": {"type": ["string", "integer"]},
+                                "amount_min": {"type": ["number", "string"]},
+                                "amount_max": {"type": ["number", "string"]},
+                            },
+                        },
                         "page": {"type": "integer"},
-                        "page_size": {"type": "integer"},
+                        "page_size": {"type": "integer", "maximum": 50},
                     },
                 },
                 output_schema={
@@ -421,7 +444,14 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                 name="reconstruct_accounting_entry",
                 description=(
                     "Reconstruit les pieces par societe, exercice, journal et "
-                    "numero de piece, puis controle debit et credit par devise."
+                    "numero de piece, puis controle debit et credit par devise. "
+                    "Utiliser imperativement ce tool quand l'utilisateur demande "
+                    "de reconstituer, afficher, verifier, analyser ou controler "
+                    "une piece comptable precise par numero de piece/document. "
+                    "Fournir "
+                    "`entry_selector.document_number` et, si disponible, "
+                    "`entry_selector.fiscal_year`, `entry_selector.journal` "
+                    "ou `entry_selector.company_code`."
                 ),
                 input_schema={
                     "type": "object",
@@ -431,6 +461,18 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                         "file_path": {"type": "string"},
                         "sheet_name": {"type": "string"},
                         "column_mapping": {"type": "object"},
+                        "entry_selector": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "company_code": {"type": ["string", "null"]},
+                                "fiscal_year": {"type": ["integer", "string"]},
+                                "journal": {"type": "string"},
+                                "document_number": {
+                                    "type": ["string", "integer"],
+                                },
+                            },
+                        },
                     },
                 },
                 output_schema={
@@ -444,6 +486,9 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                         "ungrouped_line_count": {"type": "integer"},
                         "issue_counts": {"type": "object"},
                         "currencies": {"type": "array"},
+                        "selector": {"type": ["object", "null"]},
+                        "selected_entry_found": {"type": "boolean"},
+                        "selected_entry": {"type": ["object", "null"]},
                     },
                 },
                 safeguards=(
@@ -457,9 +502,15 @@ def create_excel_tool_registry() -> AgentToolRegistry:
             AgentToolDefinition(
                 name="find_ras_counterpart",
                 description=(
-                    "Recherche les lignes de RAS dans la piece candidate puis "
-                    "les regularisations potentielles, sans confirmer un lien "
-                    "documentaire absent."
+                    "Verifie les contreparties RAS: recherche les lignes de RAS "
+                    "dans la piece candidate puis les regularisations "
+                    "potentielles, sans confirmer un lien documentaire absent. "
+                    "Utiliser ce tool quand l'utilisateur demande si une "
+                    "contrepartie RAS est comptabilisee, trouvee ou absente "
+                    "dans la meme piece ou dans une piece liee. C'est le tool "
+                    "final pour la question 'les pieces candidates ont-elles "
+                    "une contrepartie RAS'. Ne pas utiliser "
+                    "detect_ras_candidates pour une question de contrepartie."
                 ),
                 input_schema={
                     "type": "object",
@@ -480,7 +531,14 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                     "type": "object",
                     "properties": {
                         "sheet_name": {"type": "string"},
+                        "detected_candidate_piece_count": {
+                            "type": ["integer", "null"],
+                        },
                         "candidate_piece_count": {"type": "integer"},
+                        "counterpart_scope_exclusion_count": {
+                            "type": ["integer", "null"],
+                        },
+                        "counterpart_scope_basis": {"type": "string"},
                         "status_counts": {"type": "object"},
                         "confirmed_amounts_by_currency": {"type": "object"},
                         "potential_related_amounts_by_currency": {"type": "object"},
@@ -508,7 +566,13 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                     "Repere au niveau de la piece les depenses potentiellement "
                     "concernees par la RAS en combinant le mapping comptable "
                     "de l'organisation et un referentiel de signaux textuels. "
-                    "Produit une liste de revue, jamais une decision fiscale."
+                    "Produit une liste de revue, jamais une decision fiscale. "
+                    "Utiliser ce tool uniquement pour inventorier les pieces "
+                    "candidates RAS. Ne pas l'utiliser pour verifier si une "
+                    "contrepartie RAS est comptabilisee: utiliser alors "
+                    "find_ras_counterpart. Ne pas fournir de column_mapping si "
+                    "le fichier actif peut etre mappe automatiquement cote "
+                    "serveur."
                 ),
                 input_schema={
                     "type": "object",
@@ -518,6 +582,17 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                         "file_path": {"type": "string"},
                         "sheet_name": {"type": "string"},
                         "column_mapping": {"type": "object"},
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                        "filters": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "account": {"type": ["string", "integer"]},
+                                "fiscal_year": {"type": ["string", "integer"]},
+                                "period": {"type": ["string", "integer"]},
+                                "currency": {"type": "string"},
+                            },
+                        },
                     },
                 },
                 output_schema={
@@ -525,6 +600,8 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                     "properties": {
                         "sheet_name": {"type": "string"},
                         "row_count": {"type": "integer"},
+                        "source_row_count": {"type": "integer"},
+                        "filters": {"type": "object"},
                         "evaluated_piece_count": {"type": "integer"},
                         "candidate_piece_count": {"type": "integer"},
                         "excluded_piece_count": {"type": "integer"},
@@ -694,9 +771,13 @@ def create_excel_tool_registry() -> AgentToolRegistry:
             AgentToolDefinition(
                 name="run_ras_audit_batch",
                 description=(
-                    "Detecte et persiste tous les candidats RAS d'un GL dans "
-                    "un audit unique. Sans faits juridiques par candidat, les "
-                    "cas restent potentiels ou indetermines."
+                    "Lance l'audit RAS global d'un Grand Livre: detecte et "
+                    "persiste tous les candidats RAS dans un audit unique, "
+                    "avec audit_id et candidate_ids opaques. Utiliser ce tool "
+                    "quand l'utilisateur demande 'lance un audit RAS', 'audite "
+                    "la RAS du GL' ou 'retourne les candidats a revoir'. Sans "
+                    "faits juridiques par candidat, les cas restent potentiels "
+                    "ou indetermines."
                 ),
                 input_schema={
                     "type": "object",
@@ -748,7 +829,12 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                 name="query_tax_rag",
                 description=(
                     "Recherche des passages fiscaux valides et retourne leurs "
-                    "citations. Ce tool informe; il ne decide ni taux ni conformite."
+                    "citations. Utiliser pour toute question juridique ou fiscale "
+                    "en langage naturel sur un taux RAS, un article du CGI, une "
+                    "loi de finances, un delai, une condition, une exemption ou "
+                    "un champ d'application, meme si l'utilisateur ne demande pas "
+                    "explicitement les sources indexees. Ce tool informe; il ne "
+                    "decide ni taux ni conformite."
                 ),
                 input_schema={
                     "type": "object",
@@ -784,6 +870,11 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                 name="generate_ras_audit_report",
                 description=(
                     "Genere la synthese d'un audit RAS deja persiste. "
+                    "Utiliser quand l'utilisateur demande un rapport, une "
+                    "synthese ou un export d'audit RAS et fournit un audit_id. "
+                    "L'audit_id est l'entree suffisante: ne pas demander de "
+                    "faits, de juridiction, de fichier ou de cas au LLM pour "
+                    "generer ce rapport. "
                     "N'accepte jamais de cas ou de montants fournis par le LLM."
                 ),
                 input_schema={
@@ -804,6 +895,7 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                         "status_counts": {"type": "object"},
                         "certainty_counts": {"type": "object"},
                         "amount_summaries": {"type": "array"},
+                        "recorded_amount_summaries": {"type": "array"},
                         "details": {"type": "array"},
                         "reference_versions": {"type": "array"},
                         "decision_status": {"type": "string"},

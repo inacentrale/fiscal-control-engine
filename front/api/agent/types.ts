@@ -64,6 +64,22 @@ export type AgentDashboardChart = {
   metadata: Record<string, unknown>;
 };
 
+export type AgentBusinessBalanceByNature = {
+  nature: string;
+  currency: string;
+  normal_side: "debit" | "credit" | "variable" | "unknown" | string;
+  status: "calculated" | "not_calculable" | string;
+  business_balance: number | null;
+  entry_count: number;
+  used_entry_count: number;
+  excluded_entry_count: number;
+  business_excluded_entry_count: number;
+  raw_amount_sum: number;
+  debit_total: number;
+  credit_total: number;
+  account_count: number;
+};
+
 export type AgentFileDashboard = {
   file_id: string;
   sheet_name: string;
@@ -71,6 +87,7 @@ export type AgentFileDashboard = {
   schema_overview: Record<string, unknown>;
   metrics: Record<string, unknown>;
   amount_metrics_by_currency: Record<string, Record<string, number>>;
+  business_balances_by_nature: AgentBusinessBalanceByNature[];
   charts: AgentDashboardChart[];
   quality: Record<string, unknown>;
 };

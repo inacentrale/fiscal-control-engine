@@ -58,6 +58,34 @@ def test_report_separates_currencies_and_certainty_levels() -> None:
     assert summaries[(RasReportCertainty.SUPPORTED_PROVISIONAL, "USD")].difference == 0
     assert summaries[(RasReportCertainty.POTENTIAL, "XOF")].case_count == 1
     assert len(summaries) == 3
+    recorded_summaries = {
+        (summary.certainty, summary.currency): summary
+        for summary in report.recorded_amount_summaries
+    }
+    assert (
+        recorded_summaries[
+            (RasReportCertainty.SUPPORTED_PROVISIONAL, "XOF")
+        ].recorded_amount
+        == 4000
+    )
+    assert (
+        recorded_summaries[
+            (RasReportCertainty.POTENTIAL, "XOF")
+        ].recorded_amount
+        == 1000
+    )
+
+
+def test_report_summarizes_recorded_amounts_even_without_expected_amount() -> None:
+    detail = RasAuditReportGenerator().generate(
+        source_sha256=SOURCE_HASH,
+        cases=(_case("CANDIDATE-OPEN", "XOF", None, "2500", complete=False),),
+        reference_versions=("rules-v1",),
+        generated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    assert detail.amount_summaries == ()
+    assert detail.recorded_amount_summaries[0].recorded_amount == 2500
 
 
 def test_report_identifier_is_reproducible_and_order_independent() -> None:

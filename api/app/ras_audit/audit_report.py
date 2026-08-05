@@ -46,6 +46,14 @@ class RasAuditReportAmountSummary:
 
 
 @dataclass(frozen=True)
+class RasAuditReportRecordedAmountSummary:
+    certainty: RasReportCertainty
+    currency: str
+    case_count: int
+    recorded_amount: Decimal
+
+
+@dataclass(frozen=True)
 class RasAuditReportDetail:
     candidate_id: str
     status: str
@@ -71,6 +79,7 @@ class RasAuditReport:
     status_counts: tuple[tuple[str, int], ...]
     certainty_counts: tuple[tuple[str, int], ...]
     amount_summaries: tuple[RasAuditReportAmountSummary, ...]
+    recorded_amount_summaries: tuple[RasAuditReportRecordedAmountSummary, ...]
     details: tuple[RasAuditReportDetail, ...]
     reference_versions: tuple[str, ...]
 
@@ -130,6 +139,7 @@ class RasAuditReportGenerator:
         status_counts = _counts(detail.status for detail in ordered_details)
         certainty_counts = _counts(detail.certainty.value for detail in details)
         summaries = _amount_summaries(ordered_details)
+        recorded_summaries = _recorded_amount_summaries(ordered_details)
         report_id = _report_id(digest, ordered_details, normalized_versions)
         timestamp = generated_at or datetime.now(tz=UTC)
         if timestamp.tzinfo is None:
@@ -142,6 +152,7 @@ class RasAuditReportGenerator:
             status_counts=status_counts,
             certainty_counts=certainty_counts,
             amount_summaries=summaries,
+            recorded_amount_summaries=recorded_summaries,
             details=ordered_details,
             reference_versions=normalized_versions,
         )
@@ -251,6 +262,31 @@ def _amount_summaries(
             expected_amount=Decimal(values[1]),
             recorded_amount=Decimal(values[2]),
             difference=Decimal(values[3]),
+        )
+        for (certainty, currency), values in sorted(
+            totals.items(),
+            key=lambda item: (item[0][0].value, item[0][1]),
+        )
+    )
+
+
+def _recorded_amount_summaries(
+    details: tuple[RasAuditReportDetail, ...],
+) -> tuple[RasAuditReportRecordedAmountSummary, ...]:
+    totals: dict[tuple[RasReportCertainty, str], list[Decimal | int]] = {}
+    for detail in details:
+        if detail.currency is None or detail.recorded_amount is None:
+            continue
+        key = (detail.certainty, detail.currency)
+        values = totals.setdefault(key, [0, Decimal("0")])
+        values[0] = int(values[0]) + 1
+        values[1] = Decimal(values[1]) + detail.recorded_amount
+    return tuple(
+        RasAuditReportRecordedAmountSummary(
+            certainty=certainty,
+            currency=currency,
+            case_count=int(values[0]),
+            recorded_amount=Decimal(values[1]),
         )
         for (certainty, currency), values in sorted(
             totals.items(),

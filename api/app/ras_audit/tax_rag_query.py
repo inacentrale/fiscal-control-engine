@@ -1,6 +1,8 @@
+import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from unicodedata import normalize
 
 from app.rag_source.chunker import chunk_corpus_blocks
 from app.rag_source.domain import RagChunk, RagSourceMetadata
@@ -125,8 +127,17 @@ class TaxRagQueryService:
     ) -> tuple[tuple[RagChunk, float], ...]:
         if self._vector_retriever is None:
             return tuple(
-                (result.chunk, float(result.score))
-                for result in lexical_matches[:limit]
+                (
+                    result.chunk,
+                    _adjusted_lexical_score(query, result.chunk, result.score),
+                )
+                for result in sorted(
+                    lexical_matches,
+                    key=lambda item: (
+                        -_adjusted_lexical_score(query, item.chunk, item.score),
+                        item.chunk.sequence,
+                    ),
+                )[:limit]
             )
         if not lexical_matches:
             # Semantic retrieval reranks lexical evidence; it cannot bypass the
@@ -154,11 +165,51 @@ class TaxRagQueryService:
             for rank, result in enumerate(lexical_matches, start=1)
         )
         return tuple(
-            sorted(
-                scored,
-                key=lambda item: (-item[1], item[0].sequence),
-            )[:limit]
+            (
+                (chunk, _adjusted_lexical_score(query, chunk, score))
+                for chunk, score in sorted(
+                    scored,
+                    key=lambda item: (
+                        -_adjusted_lexical_score(query, item[0], item[1]),
+                        item[0].sequence,
+                    ),
+                )[:limit]
+            )
         )
+
+
+def _adjusted_lexical_score(query: str, chunk: RagChunk, base_score: float) -> float:
+    query_text = _normalized_search_text(query)
+    chunk_text = _normalized_search_text(
+        " ".join(
+            (
+                chunk.source_metadata.title,
+                chunk.source_metadata.version,
+                chunk.section_reference,
+                chunk.text,
+            )
+        )
+    )
+    score = float(base_score)
+    for year in re.findall(r"\b20\d{2}\b", query_text):
+        if year in chunk_text:
+            score += 3
+    if "ifu" in query_text and "ifu" in chunk_text:
+        score += 2
+    if "taux" in query_text and "taux" in chunk_text:
+        score += 1
+    asks_resident = "resident" in query_text and "non resident" not in query_text
+    if asks_resident and "non resident" in chunk_text:
+        score -= 4
+    asks_non_resident = "non resident" in query_text
+    if asks_non_resident and "non resident" in chunk_text:
+        score += 2
+    return score
+
+
+def _normalized_search_text(value: str) -> str:
+    normalized = normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    return " ".join(re.findall(r"[a-z0-9]+", normalized.lower()))
 
 
 def _applicability(metadata: RagSourceMetadata, as_of_date: date | None) -> str:

@@ -75,6 +75,9 @@ class AccountingEntryReconstructionToolReport:
     normalized_issue_codes: tuple[str, ...]
     rejected_row_count: int
     reconstruction: AccountingEntryReconstructionReport
+    selected_entry: ReconstructedAccountingEntry | None = None
+    selected_lines: tuple[CanonicalLedgerEntry, ...] = ()
+    selector: dict[str, str | int | None] | None = None
 
 
 class AccountingEntryReconstructor:

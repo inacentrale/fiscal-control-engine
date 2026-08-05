@@ -26,6 +26,29 @@ services:
       - ./api/.env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://harmonizer:harmonizer@db:5432/harmonizer}
+      EXCEL_AGENT_ALLOWED_ROOT_PATH: /workspace/docs
+      AGENT_FILE_STORAGE_ROOT_PATH: /workspace/.local/agent-files
+      RAS_CLASSIFICATION_RULES_PATH: /workspace/docs/reference/ras-classification-rules.csv
+      POSTING_KEY_RULES_PATH: /workspace/docs/reference/sap-posting-key-rules.csv
+      ACCOUNT_BALANCE_RULES_PATH: /workspace/docs/reference/syscohada-account-balance-rules.csv
+      RAS_GL_COLUMN_ALIASES_PATH: /workspace/docs/reference/ras-gl-column-aliases.csv
+      RAS_CANDIDATE_SIGNALS_PATH: /workspace/docs/reference/ras-candidate-signals.csv
+      RAS_SEMANTIC_POLICY_PATH: /workspace/docs/reference/ras-semantic-classification-policy.csv
+      RAS_LEGAL_RULES_PATH: /workspace/docs/reference/bf-ras-legal-rules.csv
+      RAS_LEGAL_REPOSITORY_ROOT_PATH: /workspace
+      RAS_TAX_EVENT_RULES_PATH: /workspace/docs/reference/bf-ras-tax-event-rules.csv
+      RAS_CALCULATION_PARAMETERS_PATH: /workspace/docs/reference/bf-ras-calculation-parameters.csv
+      RAS_ACCOUNTING_ASSESSMENT_POLICY_PATH: /workspace/docs/reference/ras-accounting-assessment-policy.csv
+      RAS_USER_FACT_PATTERNS_PATH: /workspace/docs/reference/ras-user-fact-patterns.csv
+      RAS_FACT_CONTEXT_SIGNING_KEY: ${RAS_FACT_CONTEXT_SIGNING_KEY:-dev-only-ras-fact-context-signing-key-32-bytes}
+      RAS_LEDGER_ACCOUNT_MAPPING_PATH: /workspace/docs/reference/ras-ledger-account-mapping.organization.csv
+      TAX_RAG_SOURCE_ROOT_PATH: /workspace/docs/source-corpus/fiscal
+      VAT_VALIDATION_RULES_PATH: /workspace/docs/reference/bf-vat-validation-rules.csv
+      WITHHOLDING_VALIDATION_RULES_PATH: /workspace/docs/reference/bf-withholding-validation-rules.csv
+      WITHHOLDING_DEADLINE_RULES_PATH: /workspace/docs/reference/bf-withholding-deadline-rules.csv
+      PAYROLL_TAX_VALIDATION_RULES_PATH: /workspace/docs/reference/bf-iuts-validation-rules.csv
+      CORPORATE_INCOME_TAX_VALIDATION_RULES_PATH: /workspace/docs/reference/bf-is-validation-rules.csv
+      TAX_ASSURANCE_POLICY_PATH: /workspace/docs/reference/bf-tax-assurance-policy.csv
     ports:
       - "${API_HOST_PORT:-8001}:8000"
     volumes:

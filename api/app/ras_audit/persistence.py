@@ -80,6 +80,7 @@ class SqlAlchemyRasAuditRepository:
                     created_at=snapshot.created_at,
                 )
             )
+            session.flush()
             for case in snapshot.cases:
                 session.add(
                     RasAuditCaseModel(

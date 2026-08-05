@@ -81,6 +81,7 @@ Checklist operationnelle du chantier front. Les cases seront cochees au fur et a
 - [x] Ajouter les graphes Grand Livre enrichis dans la vue agrandie: debit/credit/solde par periode, solde cumule, ecritures par periode.
 - [x] Ajouter la comparaison RAS par periode: pieces evaluees, candidats et taux candidat.
 - [x] Organiser la troisieme colonne en vue principale, KPI compacts, onglets metier et cartes animees.
+- [x] Remplacer la card `Montant` par des cards de solde metier par nature de compte, avec detail deroulant: devise, ecritures, comptes, utilisees, exclues, debit et credit.
 - [ ] Afficher les resultats `query_ledger_entries` depuis le payload structure, pas depuis le texte LLM.
 - [ ] Afficher un resume court pour les ecritures: total trouve, page affichee, taille page.
 - [ ] Afficher les ecritures dans un tableau base sur `returned_columns` et `entries`.
