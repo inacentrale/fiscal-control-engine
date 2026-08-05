@@ -79,6 +79,7 @@ Checklist operationnelle du chantier front. Les cases seront cochees au fur et a
 - [x] Afficher les graphes dashboard riches: comptes, periodes, TVA, tiers, qualite, candidats fiscaux.
 - [x] Ajouter la vue agrandie du controle RAS avec icone locale `Maximize24Icon`, modal quasi plein ecran, KPI, donut, bar charts et courbes.
 - [x] Ajouter les graphes Grand Livre enrichis dans la vue agrandie: debit/credit/solde par periode, solde cumule, ecritures par periode.
+- [x] Ajouter les stats et graphes Grand Livre etendus: classes OHADA, debit/credit/solde par classe, devise, exercice, cles de comptabilisation, qualite par champ.
 - [x] Ajouter la comparaison RAS par periode: pieces evaluees, candidats et taux candidat.
 - [x] Organiser la troisieme colonne en vue principale, KPI compacts, onglets metier et cartes animees.
 - [x] Remplacer la card `Montant` par des cards de solde metier par nature de compte, avec detail deroulant: devise, ecritures, comptes, utilisees, exclues, debit et credit.

@@ -31,6 +31,7 @@ from app.ledger_analysis.schema_validator import (
 )
 
 SIGNED_AMOUNT_COLUMN = "__signed_amount"
+ACCOUNT_CLASS_COLUMN = "__account_class"
 
 
 @dataclass(frozen=True)
@@ -233,17 +234,20 @@ class LedgerAnalysisService:
         dataframe = _filter_frame(canonical_frame, safe_filters)
         amount_column = _calculation_amount_column(canonical_frame)
         aggregations = tuple(
-            _aggregate_field(
-                dataframe=dataframe,
-                canonical_field=canonical_field,
-                source_column=canonical_frame.fields[canonical_field],
-                amount_column=amount_column,
-                raw_amount_column=canonical_frame.fields["amount"],
-                limit=limit,
+            aggregation
+            for aggregation in (
+                _aggregate_requested_field(
+                    dataframe=dataframe,
+                    canonical_field=canonical_field,
+                    fields=canonical_frame.fields,
+                    amount_column=amount_column,
+                    raw_amount_column=canonical_frame.fields["amount"],
+                    limit=limit,
+                )
+                for canonical_field in group_by
+                if canonical_field in LEDGER_AGGREGATION_FIELDS
             )
-            for canonical_field in group_by
-            if canonical_field in LEDGER_AGGREGATION_FIELDS
-            and canonical_field in canonical_frame.fields
+            if aggregation is not None
         )
         return LedgerAggregationReport(
             sheet_name=sheet_name,
@@ -556,6 +560,10 @@ def _aggregate_field(
         )
     if canonical_field == "period":
         groups_list.sort(key=lambda group: (_period_sort_key(group.key), group.key))
+    elif canonical_field == "account_class":
+        groups_list.sort(
+            key=lambda group: (_account_class_sort_key(group.key), group.key),
+        )
     else:
         groups_list.sort(
             key=lambda group: (group.balance, group.entry_count),
@@ -568,6 +576,62 @@ def _aggregate_field(
         total_groups=len(groups_list),
         groups=groups,
     )
+
+
+def _aggregate_requested_field(
+    dataframe: pd.DataFrame,
+    canonical_field: str,
+    fields: dict[str, str],
+    amount_column: str,
+    raw_amount_column: str,
+    limit: int,
+) -> LedgerFieldAggregation | None:
+    if canonical_field == "account_class":
+        account_column = fields.get("account")
+        if account_column is None:
+            return None
+        prepared_frame = dataframe.assign(
+            **{
+                ACCOUNT_CLASS_COLUMN: dataframe[account_column].map(
+                    _account_class_label
+                ),
+            },
+        )
+        return _aggregate_field(
+            dataframe=prepared_frame,
+            canonical_field=canonical_field,
+            source_column=ACCOUNT_CLASS_COLUMN,
+            amount_column=amount_column,
+            raw_amount_column=raw_amount_column,
+            limit=limit,
+        )
+    source_column = fields.get(canonical_field)
+    if source_column is None:
+        return None
+    return _aggregate_field(
+        dataframe=dataframe,
+        canonical_field=canonical_field,
+        source_column=source_column,
+        amount_column=amount_column,
+        raw_amount_column=raw_amount_column,
+        limit=limit,
+    )
+
+
+def _account_class_label(value: object) -> str:
+    account = str(_stable_cell_value(value))
+    significant_digits = "".join(
+        character for character in account if character.isdigit()
+    )
+    significant_digits = significant_digits.lstrip("0")
+    if not significant_digits:
+        return "Sans classe"
+    return f"Classe {significant_digits[0]}"
+
+
+def _account_class_sort_key(value: str) -> int:
+    digits = "".join(character for character in value if character.isdigit())
+    return int(digits[0]) if digits else 10_000
 
 
 def _currency_column(dataframe: pd.DataFrame, grouped_column: str) -> str | None:

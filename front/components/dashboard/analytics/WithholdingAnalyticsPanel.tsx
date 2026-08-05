@@ -1,5 +1,4 @@
 "use client";
-import type { ReactNode } from "react";
 import {
   Area,
   AreaChart,
@@ -24,6 +23,7 @@ import type {
 } from "@/api/agent/types";
 import { ModalTitle } from "@/components/base/modal";
 import {
+  Chart2Icon,
   DocumentTextIcon,
   MoneyTickIcon,
   PercentageSquareIcon,
@@ -32,8 +32,11 @@ import {
 
 import AnalyticsReveal from "./AnalyticsReveal";
 import AnalyticsChartCard from "./AnalyticsChartCard";
-import AnalyticsKpiGrid from "./AnalyticsKpiGrid";
+import AnalyticsKpiGrid, {
+  AnalyticsBusinessBalanceGrid,
+} from "./AnalyticsKpiGrid";
 import AnalyticsQualityDetails from "./AnalyticsQualityDetails";
+import AnalyticsStatGrid, { type AnalyticsStatItem } from "./AnalyticsStatGrid";
 import AnalyticsViewTabs from "./AnalyticsViewTabs";
 import {
   chartColors,
@@ -100,28 +103,10 @@ export default function WithholdingAnalyticsPanel({
       </header>
 
       <AnalyticsReveal>
-        <div className="grid grid-cols-4 gap-1.5">
-          <RasKpi
-            icon={<DocumentTextIcon className="size-3.5" />}
-            label="Pièces"
-            value={result.evaluatedPieceCount}
-          />
-          <RasKpi
-            icon={<SearchStatusIcon className="size-3.5" />}
-            label="Candidats"
-            value={result.candidatePieceCount}
-          />
-          <RasKpi
-            icon={<PercentageSquareIcon className="size-3.5" />}
-            label="Taux"
-            value={`${Math.round(candidateRate * 1000) / 10}%`}
-          />
-          <RasKpi
-            icon={<MoneyTickIcon className="size-3.5" />}
-            label="Montant"
-            value={amount ? formatAmount(amount.value, amount.currency) : "-"}
-          />
-        </div>
+        <AnalyticsStatGrid
+          items={rasCompactStats({ amount, candidateRate, result })}
+          variant="compact"
+        />
       </AnalyticsReveal>
 
       <AnalyticsReveal delay={0.02}>
@@ -155,28 +140,6 @@ export default function WithholdingAnalyticsPanel({
       )}
 
     </>
-  );
-}
-
-function RasKpi({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: number | string;
-}) {
-  return (
-    <div className="rounded-[14px] bg-[#f5f8fa] px-2.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
-      <p className="flex items-center gap-1.5 truncate text-[10px] font-semibold text-[#7d8d97]">
-        <span className="shrink-0 text-[#60737e]">{icon}</span>
-        <span className="truncate">{label}</span>
-      </p>
-      <p className="mt-1 truncate text-[15px] font-semibold text-[#102734]">
-        {typeof value === "number" ? formatCompactNumber(value) : value}
-      </p>
-    </div>
   );
 }
 
@@ -287,9 +250,9 @@ export function WithholdingExpandedModal({
   return (
     <div className="fixed inset-0 z-50 bg-[#102734]/26 p-3 backdrop-blur-[2px] sm:p-6">
       <section className="mx-auto flex h-full max-w-[1480px] flex-col overflow-hidden rounded-[30px] bg-[#f7fafb] shadow-[0_32px_90px_rgba(16,39,52,0.24)] ring-1 ring-white/70">
-        <div className="sticky top-0 z-10 bg-[#f7fafb]/92 px-5 pt-5 backdrop-blur sm:px-7">
+        <div className="sticky top-0 z-10 bg-[#f7fafb]/92 px-5 pt-4 backdrop-blur sm:px-7">
           <ModalTitle
-            className="mb-4 pb-1"
+            className="mb-2 pb-0"
             setActive={handleModalActiveChange}
             title={
               <span className="flex min-w-0 items-center gap-4">
@@ -307,55 +270,22 @@ export function WithholdingExpandedModal({
           />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-7">
+        <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-5 pt-3 sm:px-7">
           {activeMode === "withholding" ? (
             <>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <ExpandedKpi
-                  accent="#40515C"
-                  detail="pièces"
-                  icon={<DocumentTextIcon className="size-5" />}
-                  label="Évaluées"
-                  muted
-                  progress={
-                    result.rowCount > 0
-                      ? result.evaluatedPieceCount / result.rowCount
-                      : 0
-                  }
-                  value={result.evaluatedPieceCount}
-                />
-                <ExpandedKpi
-                  accent="#7FA6B7"
-                  detail="candidats RAS"
-                  icon={<SearchStatusIcon className="size-5" />}
-                  label="À revoir"
-                  progress={candidateRate}
-                  strong
-                  value={result.candidatePieceCount}
-                />
-                <ExpandedKpi
-                  accent="#12A17D"
-                  detail="taux candidat"
-                  icon={<PercentageSquareIcon className="size-5" />}
-                  label="Ratio"
-                  progress={candidateRate}
-                  value={`${Math.round(candidateRate * 1000) / 10}%`}
-                />
-                <ExpandedKpi
-                  accent="#D7A44A"
-                  detail={amount?.currency ?? "montant"}
-                  icon={<MoneyTickIcon className="size-5" />}
-                  label="Montant"
-                  progress={1}
-                  value={amount ? formatAmount(amount.value, amount.currency) : "-"}
-                />
-              </div>
+              <AnalyticsStatGrid
+                items={rasExpandedStats({
+                  amount,
+                  candidateRate,
+                  result,
+                })}
+              />
 
               <div
                 className={[
-                  "mt-5 grid gap-5",
+                  "mt-4 grid gap-4",
                   periods.length > 0
-                    ? "xl:grid-cols-[1.12fr_0.88fr]"
+                    ? "xl:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)]"
                     : "xl:grid-cols-1",
                 ].join(" ")}
               >
@@ -364,12 +294,12 @@ export function WithholdingExpandedModal({
               </div>
 
               {periods.length > 0 && (
-                <div className="mt-5">
+                <div className="mt-4">
                   <ExpandedRasPeriodVolumeCard periods={periods} />
                 </div>
               )}
 
-              <div className="mt-5 grid gap-5 xl:grid-cols-2">
+              <div className="mt-4 grid gap-4 xl:grid-cols-2">
                 <ExpandedBarCard
                   items={signalItems}
                   subtitle="Comptages par signal déterministe"
@@ -382,7 +312,7 @@ export function WithholdingExpandedModal({
                 />
               </div>
 
-              <div className="mt-5 grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+              <div className="mt-4 grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
                 <ExpandedBarCard
                   items={missingFactItems}
                   subtitle="Informations à confirmer avant décision"
@@ -426,11 +356,15 @@ function ExpandedLedgerView({
   secondaryCharts: AgentDashboardChart[];
 }) {
   const priorityCharts = [
+    findChart(dashboard, "amount_by_account_class"),
+    findChart(dashboard, "debit_credit_by_account_class"),
     findChart(dashboard, "debit_credit_by_period"),
     findChart(dashboard, "cumulative_balance_by_period"),
-    findChart(dashboard, "entries_by_period"),
   ].filter((chart): chart is AgentDashboardChart => Boolean(chart));
-  const displayedIds = new Set(priorityCharts.map((chart) => chart.chart_id));
+  const orderedCharts = [primaryChart, ...priorityCharts].filter(
+    (chart): chart is AgentDashboardChart => Boolean(chart)
+  );
+  const displayedIds = new Set(orderedCharts.map((chart) => chart.chart_id));
   const remainingCharts = secondaryCharts.filter(
     (chart) => !displayedIds.has(chart.chart_id)
   );
@@ -438,86 +372,140 @@ function ExpandedLedgerView({
   return (
     <>
       <AnalyticsKpiGrid dashboard={dashboard} variant="expanded" />
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_1fr]">
-        <AnalyticsQualityDetails dashboard={dashboard} />
-        {primaryChart && (
-          <div className="space-y-2">
-            <AnalyticsChartCard chart={primaryChart} featured />
-          </div>
-        )}
-      </div>
-      <div className="mt-5">
+      <div className="mt-4">
         <AnalyticsViewTabs activeView={activeView} onChange={onViewChange} />
       </div>
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        {[...priorityCharts, ...remainingCharts].map((chart) => (
-          <AnalyticsChartCard chart={chart} key={chart.chart_id} />
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        {[...orderedCharts, ...remainingCharts].map((chart) => (
+          <AnalyticsChartCard
+            chart={chart}
+            density="modal"
+            featured={chart.chart_id === "top_accounts_by_amount"}
+            key={chart.chart_id}
+          />
         ))}
+      </div>
+      <div className="mt-4">
+        <AnalyticsBusinessBalanceGrid dashboard={dashboard} />
+      </div>
+      <div className="mt-4">
+        <AnalyticsQualityDetails dashboard={dashboard} defaultOpen />
       </div>
     </>
   );
 }
 
-function ExpandedKpi({
-  accent,
-  detail,
-  icon,
-  label,
-  muted = false,
-  progress,
-  strong = false,
-  value,
+function rasExpandedStats({
+  amount,
+  candidateRate,
+  result,
 }: {
-  accent: string;
-  detail: string;
-  icon: ReactNode;
-  label: string;
-  muted?: boolean;
-  progress: number;
-  strong?: boolean;
-  value: number | string;
-}) {
-  const width = `${Math.round(Math.max(0.06, Math.min(progress, 1)) * 100)}%`;
+  amount: { currency: string; value: number } | null;
+  candidateRate: number;
+  result: RasCandidateDetectionResult;
+}): AnalyticsStatItem[] {
+  const rejectedRate =
+    result.rowCount > 0 ? result.rejectedRowCount / result.rowCount : 0;
+  const excludedRate =
+    result.evaluatedPieceCount > 0
+      ? result.excludedPieceCount / result.evaluatedPieceCount
+      : 0;
 
-  return (
-    <div
-      className={[
-        "overflow-hidden rounded-[22px] bg-white px-5 py-4 shadow-[0_18px_44px_rgba(64,81,92,0.07)] ring-1",
-        strong ? "ring-[#d7e8ef]" : "ring-[#e5eef2]",
-      ].join(" ")}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <p className="truncate text-[12px] font-semibold text-[#7d8d97]">
-          {label}
-        </p>
-        <span
-          className="flex size-9 shrink-0 items-center justify-center rounded-full"
-          style={{ backgroundColor: `${accent}14`, color: accent }}
-        >
-          {icon}
-        </span>
-      </div>
-      <p
-        className={[
-          "mt-2 truncate font-semibold text-[#102734]",
-          strong ? "text-[32px]" : "text-[28px]",
-        ].join(" ")}
-      >
-        {typeof value === "number" ? formatCompactNumber(value) : value}
-      </p>
-      <div className="mt-3 flex items-center gap-2">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#edf3f6]">
-          <div
-            className="h-full rounded-full transition-all duration-700 ease-out"
-            style={{ backgroundColor: muted ? "#8B98A3" : accent, width }}
-          />
-        </div>
-        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a98a2]">
-          {detail}
-        </span>
-      </div>
-    </div>
-  );
+  return [
+    {
+      accent: "#40515C",
+      detail: "Pièces évaluées dans la revue",
+      icon: <DocumentTextIcon className="size-5" />,
+      label: "Évaluées",
+      muted: true,
+      progress:
+        result.rowCount > 0 ? result.evaluatedPieceCount / result.rowCount : 0,
+      value: formatCompactNumber(result.evaluatedPieceCount),
+    },
+    {
+      accent: "#7FA6B7",
+      detail: "Écritures candidates à revoir",
+      icon: <SearchStatusIcon className="size-5" />,
+      label: "À revoir",
+      progress: candidateRate,
+      strong: true,
+      value: formatCompactNumber(result.candidatePieceCount),
+    },
+    {
+      accent: "#12A17D",
+      detail: "Part des candidats détectés",
+      icon: <PercentageSquareIcon className="size-5" />,
+      label: "Ratio",
+      progress: candidateRate,
+      value: `${Math.round(candidateRate * 1000) / 10}%`,
+    },
+    {
+      accent: "#D7A44A",
+      detail: amount ? `Montant candidat en ${amount.currency}` : "Montant candidat",
+      icon: <MoneyTickIcon className="size-5" />,
+      label: "Montant",
+      progress: amount ? 1 : 0,
+      value: amount ? formatAmount(amount.value, amount.currency) : "-",
+    },
+    {
+      accent: "#8B98A3",
+      detail: "Pièces sorties du périmètre",
+      icon: <Chart2Icon className="size-5" />,
+      label: "Exclues",
+      muted: true,
+      progress: excludedRate,
+      value: formatCompactNumber(result.excludedPieceCount),
+    },
+    {
+      accent: "#E36F55",
+      detail: "Lignes rejetées par contrôle",
+      icon: <SearchStatusIcon className="size-5" />,
+      label: "Rejets",
+      progress: rejectedRate,
+      value: formatCompactNumber(result.rejectedRowCount),
+    },
+  ];
+}
+
+function rasCompactStats({
+  amount,
+  candidateRate,
+  result,
+}: {
+  amount: { currency: string; value: number } | null;
+  candidateRate: number;
+  result: RasCandidateDetectionResult;
+}): AnalyticsStatItem[] {
+  return [
+    {
+      accent: "#40515C",
+      detail: "",
+      icon: null,
+      label: "Pièces",
+      value: formatCompactNumber(result.evaluatedPieceCount),
+    },
+    {
+      accent: "#7FA6B7",
+      detail: "",
+      icon: null,
+      label: "Candidats",
+      value: formatCompactNumber(result.candidatePieceCount),
+    },
+    {
+      accent: "#12A17D",
+      detail: "",
+      icon: null,
+      label: "Taux",
+      value: `${Math.round(candidateRate * 1000) / 10}%`,
+    },
+    {
+      accent: "#D7A44A",
+      detail: "",
+      icon: null,
+      label: "Montant",
+      value: amount ? formatAmount(amount.value, amount.currency) : "-",
+    },
+  ];
 }
 
 function ExpandedRasPeriodVolumeCard({
@@ -532,10 +520,10 @@ function ExpandedRasPeriodVolumeCard({
   }));
 
   return (
-    <section className="rounded-[28px] bg-white p-5 shadow-[0_18px_44px_rgba(64,81,92,0.07)] ring-1 ring-[#e5eef2]">
+    <section className="rounded-[24px] bg-white p-4 shadow-[0_18px_44px_rgba(64,81,92,0.07)] ring-1 ring-[#e5eef2]">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-[18px] font-semibold text-[#102734]">
+          <h3 className="text-[16px] font-semibold text-[#102734]">
             Pièces RAS par période
           </h3>
           <p className="mt-1 text-[12px] font-medium text-[#7d8d97]">
@@ -547,7 +535,7 @@ function ExpandedRasPeriodVolumeCard({
         </span>
       </div>
 
-      <div className="mt-5 h-[280px] w-full outline-none [&_.recharts-wrapper]:outline-none [&_svg]:outline-none">
+      <div className="mt-4 h-[220px] w-full outline-none [&_.recharts-wrapper]:outline-none [&_svg]:outline-none">
         <ResponsiveContainer height="100%" width="100%">
           <BarChart data={data} margin={{ top: 12, right: 18, bottom: 4, left: -12 }}>
             <CartesianGrid stroke="#EAF1F4" strokeDasharray="6 10" vertical={false} />
@@ -595,10 +583,10 @@ function ExpandedTrendCard({ periods }: { periods: RasReviewPeriod[] }) {
   const currency = data.find((item) => item.currency)?.currency ?? null;
 
   return (
-    <section className="rounded-[28px] bg-white p-5 shadow-[0_18px_44px_rgba(64,81,92,0.07)] ring-1 ring-[#e5eef2]">
+    <section className="rounded-[24px] bg-white p-4 shadow-[0_18px_44px_rgba(64,81,92,0.07)] ring-1 ring-[#e5eef2]">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-[18px] font-semibold text-[#102734]">
+          <h3 className="text-[16px] font-semibold text-[#102734]">
             Courbes RAS
           </h3>
           <p className="mt-1 text-[12px] font-medium text-[#7d8d97]">
@@ -611,7 +599,7 @@ function ExpandedTrendCard({ periods }: { periods: RasReviewPeriod[] }) {
       </div>
 
       {data.length > 0 ? (
-        <div className="mt-5 h-[340px] w-full outline-none [&_.recharts-wrapper]:outline-none [&_svg]:outline-none">
+        <div className="mt-4 h-[230px] w-full outline-none [&_.recharts-wrapper]:outline-none [&_svg]:outline-none">
           <ResponsiveContainer height="100%" width="100%">
             <AreaChart data={data} margin={{ top: 18, right: 18, bottom: 4, left: -12 }}>
               <defs>
@@ -724,10 +712,10 @@ function ExpandedStatusCard({
   }));
 
   return (
-    <section className="rounded-[28px] bg-white p-5 shadow-[0_18px_44px_rgba(64,81,92,0.07)] ring-1 ring-[#e5eef2]">
+    <section className="rounded-[24px] bg-white p-4 shadow-[0_18px_44px_rgba(64,81,92,0.07)] ring-1 ring-[#e5eef2]">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-[18px] font-semibold text-[#102734]">
+          <h3 className="text-[16px] font-semibold text-[#102734]">
             Statuts candidats
           </h3>
           <p className="mt-1 text-[12px] font-medium text-[#7d8d97]">
@@ -739,8 +727,8 @@ function ExpandedStatusCard({
         </span>
       </div>
 
-      <div className="mt-5 grid items-center gap-4 md:grid-cols-[240px_minmax(0,1fr)]">
-        <div className="relative h-[240px]">
+      <div className="mt-4 grid items-center gap-4 md:grid-cols-[200px_minmax(0,1fr)]">
+        <div className="relative h-[200px]">
           <ResponsiveContainer height="100%" width="100%">
             <PieChart>
               <Tooltip content={<ExpandedPieTooltip />} />
@@ -748,8 +736,8 @@ function ExpandedStatusCard({
                 cornerRadius={12}
                 data={data}
                 dataKey="value"
-                innerRadius={72}
-                outerRadius={104}
+                innerRadius={60}
+                outerRadius={88}
                 paddingAngle={3}
                 stroke="none"
               >
@@ -763,7 +751,7 @@ function ExpandedStatusCard({
             </PieChart>
           </ResponsiveContainer>
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-            <strong className="text-[34px] font-semibold leading-none text-[#102734]">
+            <strong className="text-[30px] font-semibold leading-none text-[#102734]">
               {formatCompactNumber(result.candidatePieceCount)}
             </strong>
             <span className="mt-2 text-[12px] font-semibold text-[#8a98a2]">
@@ -819,10 +807,10 @@ function ExpandedBarCard({
   }));
 
   return (
-    <section className="rounded-[28px] bg-white p-5 shadow-[0_18px_44px_rgba(64,81,92,0.07)] ring-1 ring-[#e5eef2]">
+    <section className="rounded-[24px] bg-white p-4 shadow-[0_18px_44px_rgba(64,81,92,0.07)] ring-1 ring-[#e5eef2]">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-[18px] font-semibold text-[#102734]">{title}</h3>
+          <h3 className="text-[16px] font-semibold text-[#102734]">{title}</h3>
           <p className="mt-1 text-[12px] font-medium text-[#7d8d97]">{subtitle}</p>
         </div>
         <span className="rounded-full bg-[#f5f8fa] px-3 py-1.5 text-[12px] font-semibold text-[#60737e]">
@@ -831,7 +819,7 @@ function ExpandedBarCard({
       </div>
 
       {data.length > 0 ? (
-        <div className="mt-5 h-[260px] w-full outline-none [&_.recharts-wrapper]:outline-none [&_svg]:outline-none">
+        <div className="mt-4 h-[210px] w-full outline-none [&_.recharts-wrapper]:outline-none [&_svg]:outline-none">
           <ResponsiveContainer height="100%" width="100%">
             <BarChart data={data} layout="vertical" margin={{ top: 6, right: 18, bottom: 4, left: 6 }}>
               <CartesianGrid horizontal={false} stroke="#EAF1F4" strokeDasharray="6 10" />

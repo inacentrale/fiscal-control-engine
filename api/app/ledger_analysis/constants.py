@@ -28,12 +28,15 @@ REQUIRED_CANONICAL_LEDGER_FIELDS = (
 
 LEDGER_AGGREGATION_FIELDS = (
     "account",
+    "account_class",
     "currency",
     "period",
+    "fiscal_year",
     "document_type",
     "tax_code",
     "vendor",
     "customer",
+    "posting_key",
 )
 
 LEDGER_QUERY_OUTPUT_FIELDS = (

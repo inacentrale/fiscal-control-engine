@@ -157,7 +157,7 @@ def build_file_dashboard(
     file_path: Path,
     sheet_name: str,
 ) -> AgentFileDashboardResponse:
-    executor = create_excel_tool_executor(settings)
+    executor = create_dashboard_tool_executor(settings)
     analysis = _successful_tool_output(
         executor.execute(
             ToolCall(
@@ -189,12 +189,15 @@ def build_file_dashboard(
                     "sheet_name": sheet_name,
                     "group_by": [
                         "account",
+                        "account_class",
                         "currency",
                         "period",
+                        "fiscal_year",
                         "document_type",
                         "tax_code",
                         "vendor",
                         "customer",
+                        "posting_key",
                     ],
                     "limit": 12,
                 },
@@ -212,7 +215,7 @@ def build_file_dashboard(
             ),
         ),
     )
-    tax_candidates = _successful_tool_output(
+    tax_candidates = _safe_tool_output(
         executor.execute(
             ToolCall(
                 name="detect_tax_candidates",
@@ -227,11 +230,13 @@ def build_file_dashboard(
     return AgentFileDashboardResponse(
         file_id=file_id,
         sheet_name=sheet_name,
-        summary={
-            "row_count": analysis.get("row_count", 0),
-            "column_count": analysis.get("column_count", 0),
-            "sheet_name": sheet_name,
-        },
+        summary=_dashboard_summary(
+            analysis=analysis,
+            metrics=metrics,
+            aggregation=aggregation,
+            quality=quality,
+            sheet_name=sheet_name,
+        ),
         schema_overview=_dict_value(analysis.get("schema")),
         metrics=_dict_value(metrics.get("metrics")),
         amount_metrics_by_currency=_currency_metrics(
@@ -266,6 +271,33 @@ def _successful_tool_output(tool_result: object) -> dict[str, object]:
     return output
 
 
+def create_dashboard_tool_executor(settings: Settings) -> ExcelToolExecutor:
+    return ExcelToolExecutor(
+        tools=ExcelAgentTools(
+            allowed_root=Path(settings.excel_agent_allowed_root_path),
+            allowed_roots=(Path(settings.agent_file_storage_root_path),),
+        ),
+        registry=create_excel_tool_registry(),
+        tax_candidate_rules=load_classification_rules(
+            Path(settings.ras_classification_rules_path),
+        ),
+        posting_key_rules=load_posting_key_rules(
+            Path(settings.posting_key_rules_path),
+        ),
+        account_balance_rules=load_account_balance_rules(
+            Path(settings.account_balance_rules_path),
+        ),
+        ras_candidate_signals=(),
+    )
+
+
+def _safe_tool_output(tool_result: object) -> dict[str, object]:
+    try:
+        return _successful_tool_output(tool_result)
+    except ValueError:
+        return {}
+
+
 def _dashboard_charts(
     metrics: dict[str, object],
     aggregation: dict[str, object],
@@ -275,6 +307,7 @@ def _dashboard_charts(
     charts: list[AgentDashboardChartResponse] = []
     aggregations = _dict_value(aggregation.get("aggregations"))
     charts.extend(_account_charts(metrics, aggregations))
+    charts.extend(_account_class_charts(aggregations))
     charts.extend(_field_amount_charts(aggregations))
     charts.extend(_quality_charts(quality))
     charts.extend(_tax_candidate_charts(tax_candidates))
@@ -399,6 +432,63 @@ def _float_metric(metrics: dict[str, object], key: str) -> float:
     return float(value) if isinstance(value, int | float) else 0.0
 
 
+def _dashboard_summary(
+    analysis: dict[str, object],
+    metrics: dict[str, object],
+    aggregation: dict[str, object],
+    quality: dict[str, object],
+    sheet_name: str,
+) -> dict[str, object]:
+    metric_values = _dict_value(metrics.get("metrics"))
+    aggregations = _dict_value(aggregation.get("aggregations"))
+    totals = _best_aggregation_totals(aggregations)
+    return {
+        "row_count": analysis.get("row_count", 0),
+        "column_count": analysis.get("column_count", 0),
+        "sheet_name": sheet_name,
+        "used_entry_count": totals.get(
+            "used_entry_count",
+            metric_values.get("count", 0),
+        ),
+        "excluded_entry_count": totals.get("excluded_entry_count", 0),
+        "debit_total": totals.get("debit_total", 0),
+        "credit_total": totals.get("credit_total", 0),
+        "balance": totals.get("balance", metric_values.get("sum", 0)),
+        "average_amount": metric_values.get("average", 0),
+        "min_amount": metric_values.get("min", 0),
+        "max_amount": metric_values.get("max", 0),
+        "currency_count": len(_aggregation_groups(aggregations, "currency")),
+        "issue_count": quality.get("issue_count", 0),
+    }
+
+
+def _best_aggregation_totals(
+    aggregations: dict[str, object],
+) -> dict[str, float | int]:
+    for field_name in ("period", "currency", "account_class"):
+        groups = _aggregation_groups(aggregations, field_name)
+        if groups:
+            return _sum_group_totals(groups)
+    return {}
+
+
+def _sum_group_totals(groups: list[dict[str, object]]) -> dict[str, float | int]:
+    output: dict[str, float | int] = {
+        "entry_count": 0,
+        "used_entry_count": 0,
+        "excluded_entry_count": 0,
+        "debit_total": 0.0,
+        "credit_total": 0.0,
+        "balance": 0.0,
+    }
+    for group in groups:
+        for metric in output:
+            value = group.get(metric)
+            if isinstance(value, int | float):
+                output[metric] = round(float(output[metric]) + float(value), 2)
+    return output
+
+
 def _account_charts(
     metrics: dict[str, object],
     aggregations: dict[str, object],
@@ -461,6 +551,64 @@ def _account_charts(
     return charts
 
 
+def _account_class_charts(
+    aggregations: dict[str, object],
+) -> list[AgentDashboardChartResponse]:
+    groups = _aggregation_groups(aggregations, "account_class")
+    if not groups:
+        return []
+    labels, amount_values = _group_labels_and_values(groups, "amount_sum")
+    _, count_values = _group_labels_and_values(groups, "entry_count")
+    debit_values = _group_metric_values(groups, "debit_total")
+    credit_values = _group_metric_values(groups, "credit_total")
+    balance_values = _group_metric_values(groups, "balance")
+    currency = _common_group_currency(groups)
+    return [
+        _chart(
+            chart_id="amount_by_account_class",
+            title="Montants par classe de compte",
+            kind="bar",
+            metric="amount_sum",
+            labels=labels,
+            values=amount_values,
+            series_name="Montant",
+            metadata={
+                "dimension": "account_class",
+                "currency": currency,
+                "currencies": _group_currencies(groups),
+            },
+        ),
+        _chart(
+            chart_id="entries_by_account_class",
+            title="Écritures par classe de compte",
+            kind="bar",
+            metric="entry_count",
+            labels=labels,
+            values=count_values,
+            series_name="Écritures",
+            metadata={"dimension": "account_class"},
+        ),
+        AgentDashboardChartResponse(
+            chart_id="debit_credit_by_account_class",
+            title="Débit, crédit et solde par classe",
+            kind="composed",
+            metric="amount_sum",
+            labels=labels,
+            values=balance_values,
+            series=[
+                {"name": "Débit", "values": debit_values},
+                {"name": "Crédit", "values": credit_values},
+                {"name": "Solde", "values": balance_values},
+            ],
+            metadata={
+                "dimension": "account_class",
+                "currency": currency,
+                "currencies": _group_currencies(groups),
+            },
+        ),
+    ]
+
+
 def _field_amount_charts(
     aggregations: dict[str, object],
 ) -> list[AgentDashboardChartResponse]:
@@ -470,6 +618,34 @@ def _field_amount_charts(
     field_specs = (
         ("period", "amount_by_period", "Montants par période", "line", "Montant"),
         ("period", "entries_by_period", "Ecritures par période", "line", "Ecritures"),
+        (
+            "currency",
+            "amount_by_currency",
+            "Montants par devise",
+            "doughnut",
+            "Montant",
+        ),
+        (
+            "currency",
+            "entries_by_currency",
+            "Écritures par devise",
+            "doughnut",
+            "Écritures",
+        ),
+        (
+            "fiscal_year",
+            "amount_by_fiscal_year",
+            "Montants par exercice",
+            "bar",
+            "Montant",
+        ),
+        (
+            "fiscal_year",
+            "entries_by_fiscal_year",
+            "Écritures par exercice",
+            "bar",
+            "Écritures",
+        ),
         (
             "document_type",
             "amount_by_document_type",
@@ -498,6 +674,13 @@ def _field_amount_charts(
             "horizontal_bar",
             "Montant",
         ),
+        (
+            "posting_key",
+            "entries_by_posting_key",
+            "Écritures par clé de comptabilisation",
+            "horizontal_bar",
+            "Écritures",
+        ),
     )
     for field_name, chart_id, title, kind, series_name in field_specs:
         groups = _aggregation_groups(aggregations, field_name)
@@ -506,7 +689,7 @@ def _field_amount_charts(
         sorted_groups = (
             _sort_period_groups(groups) if field_name == "period" else groups
         )
-        metric = "entry_count" if chart_id == "entries_by_period" else "amount_sum"
+        metric = "entry_count" if chart_id.startswith("entries_") else "amount_sum"
         labels, values = (
             _period_labels_and_values(sorted_groups, metric)
             if field_name == "period"
@@ -593,20 +776,56 @@ def _quality_charts(quality: dict[str, object]) -> list[AgentDashboardChartRespo
         if isinstance(raw_count, int | float):
             labels.append(severity)
             values.append(raw_count)
-    if not labels:
-        return []
-    return [
-        _chart(
-            chart_id="data_quality_by_severity",
-            title="Qualité des données par sévérité",
-            kind="doughnut",
-            metric="issue_count",
-            labels=labels,
-            values=values,
-            series_name="Anomalies",
-            metadata={"dimension": "severity"},
-        ),
-    ]
+    charts: list[AgentDashboardChartResponse] = []
+    if labels:
+        charts.append(
+            _chart(
+                chart_id="data_quality_by_severity",
+                title="Qualité des données par sévérité",
+                kind="doughnut",
+                metric="issue_count",
+                labels=labels,
+                values=values,
+                series_name="Anomalies",
+                metadata={"dimension": "severity"},
+            ),
+        )
+
+    field_counts: dict[str, float | int] = {}
+    for issue in _list_value(quality.get("issues")):
+        affected_count = issue.get("affected_count")
+        if not isinstance(affected_count, int | float):
+            continue
+        field_label = (
+            issue.get("canonical_field")
+            or issue.get("source_column")
+            or issue.get("issue_type")
+            or "Sans champ"
+        )
+        field_counts[str(field_label)] = field_counts.get(str(field_label), 0) + (
+            affected_count
+        )
+
+    sorted_fields = sorted(
+        field_counts.items(),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    if sorted_fields:
+        charts.append(
+            _chart(
+                chart_id="data_quality_by_field",
+                title="Qualité des données par champ",
+                kind="horizontal_bar",
+                metric="issue_count",
+                labels=[field for field, _ in sorted_fields],
+                values=[count for _, count in sorted_fields],
+                series_name="Lignes concernées",
+                metadata={"dimension": "quality_field"},
+            ),
+        )
+
+    return charts
 
 
 def _tax_candidate_charts(
@@ -699,6 +918,16 @@ def _group_labels_and_values(
             labels.append(key)
             values.append(value)
     return labels, values
+
+
+def _group_metric_values(
+    groups: list[dict[str, object]],
+    metric: str,
+) -> list[float | int]:
+    return [
+        value if isinstance(value := group.get(metric), int | float) else 0
+        for group in groups
+    ]
 
 
 def _group_currencies(groups: list[dict[str, object]]) -> list[str | None]:

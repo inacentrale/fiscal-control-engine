@@ -10,6 +10,7 @@
     "api:dev": "docker compose up api",
     "api:dev:reload": "docker compose run --rm --service-ports api uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
     "api:lint": "docker compose run --rm -e PYTHONPATH=. api uv run --extra dev ruff check app tests scripts",
+    "api:verify:ras-sources": "docker compose run --rm -e PYTHONPATH=. api uv run python -m scripts.verify_ras_sources",
     "api:smoke:llm": "docker compose run --rm -e PYTHONPATH=. api uv run python -m scripts.smoke_llm_provider",
     "api:test": "docker compose run --rm -e PYTHONPATH=. -e DATABASE_URL= api uv run --extra dev pytest -q",
     "api:typecheck": "docker compose run --rm -e PYTHONPATH=. api uv run --extra dev mypy app tests scripts",

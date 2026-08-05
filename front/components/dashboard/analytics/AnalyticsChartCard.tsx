@@ -35,9 +35,11 @@ type TooltipPayload = Array<{
 
 export default function AnalyticsChartCard({
   chart,
+  density = "default",
   featured = false,
 }: {
   chart: AgentDashboardChart;
+  density?: "default" | "modal";
   featured?: boolean;
 }) {
   const isEmpty = chart.values.length === 0 || chartTotal(chart) === 0;
@@ -72,15 +74,15 @@ export default function AnalyticsChartCard({
       ) : featured ? (
         <FiscalHeroBars chart={chart} />
       ) : chart.kind === "composed" ? (
-        <FiscalComposedChart chart={chart} />
+        <FiscalComposedChart chart={chart} density={density} />
       ) : chart.kind === "line" ? (
-        <FiscalLineChart chart={chart} />
+        <FiscalLineChart chart={chart} density={density} />
       ) : chart.kind === "doughnut" ? (
-        <FiscalDonutChart chart={chart} />
+        <FiscalDonutChart chart={chart} density={density} />
       ) : chart.kind === "horizontal_bar" ? (
-        <FiscalHorizontalBars chart={chart} />
+        <FiscalHorizontalBars chart={chart} density={density} />
       ) : (
-        <FiscalBarChart chart={chart} featured={featured} />
+        <FiscalBarChart chart={chart} density={density} featured={featured} />
       )}
     </section>
   );
@@ -127,7 +129,13 @@ function FiscalHeroBars({ chart }: { chart: AgentDashboardChart }) {
   );
 }
 
-function FiscalComposedChart({ chart }: { chart: AgentDashboardChart }) {
+function FiscalComposedChart({
+  chart,
+  density,
+}: {
+  chart: AgentDashboardChart;
+  density: "default" | "modal";
+}) {
   const colors = ["#40515C", "#7FA6B7", "#E36F55"];
   const currency =
     typeof chart.metadata.currency === "string" ? chart.metadata.currency : null;
@@ -141,7 +149,12 @@ function FiscalComposedChart({ chart }: { chart: AgentDashboardChart }) {
   }));
 
   return (
-    <div className="mt-4 h-[170px] w-full outline-none [&_.recharts-wrapper]:outline-none [&_svg]:outline-none">
+    <div
+      className={cn(
+        "mt-4 w-full outline-none [&_.recharts-wrapper]:outline-none [&_svg]:outline-none",
+        density === "modal" ? "h-[210px]" : "h-[170px]"
+      )}
+    >
       <ResponsiveContainer height="100%" width="100%">
         <ComposedChart data={data} margin={{ top: 12, right: 8, bottom: 2, left: -24 }}>
           <CartesianGrid stroke="#EDF3F6" strokeDasharray="6 9" vertical={false} />
@@ -180,18 +193,21 @@ function FiscalComposedChart({ chart }: { chart: AgentDashboardChart }) {
 
 function FiscalBarChart({
   chart,
+  density,
   featured,
 }: {
   chart: AgentDashboardChart;
+  density: "default" | "modal";
   featured: boolean;
 }) {
   const data = chartPoints(chart, featured ? 8 : 6);
+  const height = featured ? "h-[190px]" : density === "modal" ? "h-[210px]" : "h-[142px]";
 
   return (
     <div
       className={cn(
         "mt-4 w-full outline-none [&_.recharts-wrapper]:outline-none [&_svg]:outline-none",
-        featured ? "h-[190px]" : "h-[142px]"
+        height
       )}
     >
       <ResponsiveContainer height="100%" width="100%">
@@ -230,12 +246,23 @@ function FiscalBarChart({
   );
 }
 
-function FiscalLineChart({ chart }: { chart: AgentDashboardChart }) {
+function FiscalLineChart({
+  chart,
+  density,
+}: {
+  chart: AgentDashboardChart;
+  density: "default" | "modal";
+}) {
   const data = chartPoints(chart, 12);
   const gradientId = `analytics-line-${chart.chart_id}`;
 
   return (
-    <div className="mt-4 h-[150px] w-full outline-none [&_.recharts-wrapper]:outline-none [&_svg]:outline-none">
+    <div
+      className={cn(
+        "mt-4 w-full outline-none [&_.recharts-wrapper]:outline-none [&_svg]:outline-none",
+        density === "modal" ? "h-[210px]" : "h-[150px]"
+      )}
+    >
       <ResponsiveContainer height="100%" width="100%">
         <ComposedChart data={data} margin={{ top: 12, right: 10, bottom: 2, left: -24 }}>
           <defs>
@@ -286,7 +313,13 @@ function FiscalLineChart({ chart }: { chart: AgentDashboardChart }) {
   );
 }
 
-function FiscalDonutChart({ chart }: { chart: AgentDashboardChart }) {
+function FiscalDonutChart({
+  chart,
+  density,
+}: {
+  chart: AgentDashboardChart;
+  density: "default" | "modal";
+}) {
   const data = chartPoints(chart, 5).map((point) => ({
     name: point.label,
     value: point.value,
@@ -294,8 +327,20 @@ function FiscalDonutChart({ chart }: { chart: AgentDashboardChart }) {
   }));
 
   return (
-    <div className="mt-4 grid items-center gap-3 sm:grid-cols-[118px_minmax(0,1fr)]">
-      <div className="relative h-[118px]">
+    <div
+      className={cn(
+        "mt-4 grid items-center gap-3",
+        density === "modal"
+          ? "sm:grid-cols-[170px_minmax(0,1fr)]"
+          : "sm:grid-cols-[118px_minmax(0,1fr)]"
+      )}
+    >
+      <div
+        className={cn(
+          "relative",
+          density === "modal" ? "h-[170px]" : "h-[118px]"
+        )}
+      >
         <ResponsiveContainer height="100%" width="100%">
           <PieChart>
             <Tooltip content={<ChartTooltip metric={chart.metric} />} />
@@ -304,8 +349,8 @@ function FiscalDonutChart({ chart }: { chart: AgentDashboardChart }) {
               cornerRadius={8}
               data={data}
               dataKey="value"
-              innerRadius={34}
-              outerRadius={52}
+                innerRadius={density === "modal" ? 52 : 34}
+                outerRadius={density === "modal" ? 78 : 52}
               paddingAngle={3}
             >
               {data.map((item, index) => (
@@ -343,12 +388,18 @@ function FiscalDonutChart({ chart }: { chart: AgentDashboardChart }) {
   );
 }
 
-function FiscalHorizontalBars({ chart }: { chart: AgentDashboardChart }) {
+function FiscalHorizontalBars({
+  chart,
+  density,
+}: {
+  chart: AgentDashboardChart;
+  density: "default" | "modal";
+}) {
   const data = chartPoints(chart, 7);
   const max = Math.max(...data.map((item) => item.value), 1);
 
   return (
-    <div className="mt-4 space-y-3">
+    <div className={cn("mt-4", density === "modal" ? "space-y-4" : "space-y-3")}>
       {data.map((item, index) => {
         const percent = Math.max(6, Math.round((item.value / max) * 100));
 
@@ -428,7 +479,7 @@ function ChartTooltip({
         {title}
       </p>
       <p className="mt-0.5 text-[14px] font-semibold">
-        {metric === "amount_sum"
+        {isAmountMetric(metric)
           ? formatAmount(
               Number(item?.value ?? 0),
               item?.payload?.currency ?? null
@@ -441,6 +492,7 @@ function ChartTooltip({
 
 function metricLabel(metric: string): string {
   if (metric === "amount_sum") return "Montants";
+  if (metric === "cumulative_balance") return "Solde cumulé";
   if (metric === "entry_count") return "Écritures";
   if (metric === "issue_count") return "Qualité";
   return metric;
@@ -451,19 +503,30 @@ function formatChartValue(
   value: number,
   currency: string | null
 ): string {
-  return chart.metric === "amount_sum"
+  return isAmountMetric(chart.metric)
     ? formatAmount(value, currency)
     : formatCompactNumber(value);
 }
 
 function formatChartTotal(chart: AgentDashboardChart): string {
-  if (chart.metric !== "amount_sum") return formatCompactNumber(chartTotal(chart));
   const currencies = Array.isArray(chart.metadata.currencies)
     ? chart.metadata.currencies.filter(
         (value): value is string => typeof value === "string"
       )
     : [];
+  const fallbackCurrency =
+    typeof chart.metadata.currency === "string" ? chart.metadata.currency : null;
   const uniqueCurrencies = [...new Set(currencies)];
+  const currency =
+    uniqueCurrencies.length > 1 ? null : uniqueCurrencies[0] ?? fallbackCurrency;
+  if (!isAmountMetric(chart.metric)) return formatCompactNumber(chartTotal(chart));
   if (uniqueCurrencies.length > 1) return "Multi-devises";
-  return formatAmount(chartTotal(chart), uniqueCurrencies[0] ?? null);
+  if (chart.metric === "cumulative_balance") {
+    return formatAmount(Number(chart.values.at(-1) ?? 0), currency);
+  }
+  return formatAmount(chartTotal(chart), currency);
+}
+
+function isAmountMetric(metric: string): boolean {
+  return metric === "amount_sum" || metric === "cumulative_balance";
 }

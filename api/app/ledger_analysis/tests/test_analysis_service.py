@@ -289,6 +289,39 @@ def test_service_aggregation_exposes_debit_credit_and_excluded_rows(
     assert group.amount_sum == group.balance
 
 
+def test_service_aggregates_by_ohada_account_class(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "account_class_ledger.xlsx"
+    dataframe = pd.DataFrame(
+        {
+            "Compte": ["0632100", "706000", "345520", "34552001", "001200"],
+            "Texte": ["Charge", "Produit", "Stock", "Sous-compte", "Immo"],
+            "Montant": [100.0, 500.0, 40.0, 60.0, 700.0],
+            "Clé de comptabilisation": ["40", "50", "40", "40", "40"],
+            "Devise du document": ["XOF"] * 5,
+        },
+    )
+    with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
+        dataframe.to_excel(writer, sheet_name="Grand Livre", index=False)
+    service = LedgerAnalysisService(
+        excel_tools=ExcelAgentTools(allowed_root=tmp_path),
+        posting_key_rules=_posting_key_rules(),
+    )
+
+    report = service.aggregate(
+        workbook_path,
+        sheet_name="Grand Livre",
+        group_by=("account_class",),
+    )
+
+    groups = {group.key: group for group in report.aggregations[0].groups}
+    assert report.aggregations[0].canonical_field == "account_class"
+    assert groups["Classe 1"].debit_total == 700.0
+    assert groups["Classe 3"].entry_count == 2
+    assert groups["Classe 3"].debit_total == 100.0
+    assert groups["Classe 6"].debit_total == 100.0
+    assert groups["Classe 7"].credit_total == 500.0
+
+
 def test_service_excludes_invalid_amount_without_blocking_metrics(
     tmp_path: Path,
 ) -> None:

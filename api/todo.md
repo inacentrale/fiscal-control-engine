@@ -91,6 +91,8 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 - [x] Historique: router une demande generale du type `Explique-moi cet Excel`, ensuite remplace par selection LLM-first.
 - [x] Ajouter des tests de consistance tool par tool: fixture Excel anonymisee, sortie attendue stable, absence de donnees sensibles, limites de lignes respectees.
 - [x] Enrichir le dashboard Grand Livre avec les graphes API `debit_credit_by_period` et `cumulative_balance_by_period`.
+- [x] Enrichir le dashboard Grand Livre avec les agrégats API par classe OHADA, devise, exercice, clé de comptabilisation et qualité par champ.
+- [x] Exposer dans le résumé dashboard les KPI déterministes: écritures utilisées, débit, crédit, solde, moyenne, nombre de devises et alertes qualité.
 - [x] Enrichir `detect_ras_candidates` avec `ras_review.periods`: periode, pieces evaluees, candidats, montant, devise et taux candidat.
 
 ## Orchestrateur Agent

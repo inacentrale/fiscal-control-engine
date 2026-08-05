@@ -71,6 +71,36 @@ def test_orchestrator_returns_model_answer_without_tool_call(tmp_path: Path) -> 
     ]
 
 
+def test_initial_prompt_keeps_greeting_short_and_hides_tools(tmp_path: Path) -> None:
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text="Bonjour. Ajoutez un fichier Excel ou posez une question.",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="stop",
+                tool_calls=(),
+            ),
+        ),
+    )
+    orchestrator = _create_orchestrator(tmp_path, model)
+
+    result = orchestrator.run(
+        AgentRunRequest(
+            user_message="Bonjour",
+            file_path=None,
+            sheet_name=None,
+            allowed_tools=("query_tax_rag", "calculate_theoretical_ras"),
+        ),
+    )
+
+    system_prompt = model.requests[0].messages[0].content
+    assert result.answer == "Bonjour. Ajoutez un fichier Excel ou posez une question."
+    assert "une phrase courte et naturelle" in system_prompt
+    assert "ne liste jamais les outils disponibles" in system_prompt
+    assert "Ne mentionne RAS, fiscalite, droit, CGI ou calcul" in system_prompt
+
+
 def test_request_context_is_not_injected_into_non_file_tools() -> None:
     request = AgentRunRequest(
         user_message="Question fiscale",
@@ -1047,22 +1077,6 @@ def test_orchestrator_routes_general_excel_explanation_to_analysis_tools(
     model = FakeModelProvider(
         responses=(
             ModelResponse(
-                text="",
-                provider_name="fake",
-                model_name="fake-model",
-                finish_reason="tool_calls",
-                tool_calls=(
-                    ToolCall(name="analyze_ledger", arguments={}),
-                    ToolCall(name="calculate_ledger_metrics", arguments={}),
-                    ToolCall(
-                        name="aggregate_ledger",
-                        arguments={"group_by": ["account"]},
-                    ),
-                    ToolCall(name="detect_data_quality_issues", arguments={}),
-                    ToolCall(name="detect_tax_candidates", arguments={}),
-                ),
-            ),
-            ModelResponse(
                 text="Le fichier est un Grand Livre de 4 lignes avec des contrôles.",
                 provider_name="fake",
                 model_name="fake-model",
@@ -1096,14 +1110,54 @@ def test_orchestrator_routes_general_excel_explanation_to_analysis_tools(
         "detect_data_quality_issues",
         "detect_tax_candidates",
     ]
-    assert model.calls == 2
-    final_context = model.requests[1].messages[-1].content
+    assert model.calls == 1
+    final_context = model.requests[0].messages[-1].content
     assert "analyze_ledger" in final_context
     assert "calculate_ledger_metrics" in final_context
     assert "aggregate_ledger" in final_context
+    assert model.requests[0].allowed_tools == ()
     assert result.answer == (
         "Le fichier est un Grand Livre de 4 lignes avec des contrôles."
     )
+
+
+def test_orchestrator_explains_file_with_deterministic_answer_when_model_is_internal(
+    tmp_path: Path,
+) -> None:
+    workbook_path = write_minified_grand_livre(tmp_path)
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text=(
+                    "Les contrôles déterministes sont disponibles. "
+                    "Ajoutez un fichier Excel pour lancer une analyse structurée."
+                ),
+                provider_name="internal",
+                model_name="controlled-response",
+                finish_reason="controlled_response",
+                tool_calls=(),
+            ),
+        ),
+    )
+    orchestrator = _create_orchestrator(tmp_path, model)
+
+    result = orchestrator.run(
+        AgentRunRequest(
+            user_message="Explique-moi ce fichier Grand Livre.",
+            file_path=workbook_path,
+            sheet_name="Grand Livre",
+            allowed_tools=("analyze_ledger",),
+        ),
+    )
+
+    assert [tool_result.tool_name for tool_result in result.tool_results] == [
+        "analyze_ledger",
+    ]
+    assert result.answer == (
+        "Analyse du Grand Livre terminée: 4 lignes, 5 colonnes.\n\n"
+        "Colonnes requises disponibles."
+    )
+    assert model.calls == 1
 
 
 def test_orchestrator_refuses_disallowed_tool_call(tmp_path: Path) -> None:

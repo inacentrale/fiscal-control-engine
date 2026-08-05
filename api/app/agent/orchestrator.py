@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
 from typing import Protocol
+from unicodedata import combining, normalize
 
 from app.agent.answer_policy import AgentAnswerPolicy
 from app.agent.constants import AGENT_RUN_TIMEOUT_ANSWER
@@ -144,6 +145,74 @@ class AgentOrchestrator:
                 model_name="direct-tool-call",
                 execution_events=tuple(events),
                 tool_results=(tool_result,),
+            )
+        deterministic_tool_calls = _deterministic_file_intent_tool_calls(request)
+        if deterministic_tool_calls:
+            stable_tool_results = self._execute_tool_calls(
+                tool_calls=deterministic_tool_calls,
+                request=request,
+                emit=emit,
+                provider_name="internal",
+                model_name="deterministic-router",
+            )
+            if any(not result.ok for result in stable_tool_results):
+                emit(
+                    AgentRunEvent(
+                        event_type="run_failed",
+                        title="Analyse arrêtée",
+                        message="L'analyse demandée ne peut pas être exécutée.",
+                        status="error",
+                        provider_name="internal",
+                        model_name="deterministic-router",
+                    ),
+                )
+                return AgentRunResult(
+                    answer="L'analyse déterministe du Grand Livre a échoué.",
+                    provider_name="internal",
+                    model_name="deterministic-router",
+                    execution_events=tuple(events),
+                    tool_results=stable_tool_results,
+                )
+
+            emit(
+                AgentRunEvent(
+                    event_type="model_requested",
+                    title="Réponse en cours",
+                    message="Préparation de la réponse.",
+                    status="running",
+                    provider_name=self._model_provider.provider_name,
+                ),
+            )
+            final_response = self._model_provider.generate(
+                _final_model_request(request, stable_tool_results),
+            )
+            _emit_fallback_if_needed(
+                provider_name=self._model_provider.provider_name,
+                response_provider_name=final_response.provider_name,
+                response_model_name=final_response.model_name,
+                emit=emit,
+            )
+            answer = _final_answer_from_model_or_tools(
+                final_response=final_response,
+                tool_results=stable_tool_results,
+                answer_policy=self._answer_policy,
+            )
+            emit(
+                AgentRunEvent(
+                    event_type="answer_ready",
+                    title="Réponse prête",
+                    message="Réponse prête.",
+                    status="completed",
+                    provider_name=final_response.provider_name,
+                    model_name=final_response.model_name,
+                ),
+            )
+            return AgentRunResult(
+                answer=answer,
+                provider_name=final_response.provider_name,
+                model_name=final_response.model_name,
+                execution_events=tuple(events),
+                tool_results=stable_tool_results,
             )
         initial_model_request = _initial_model_request(
             request,
@@ -358,6 +427,56 @@ def _emit_fallback_if_needed(
             provider_name=response_provider_name,
             model_name=response_model_name,
         ),
+    )
+
+
+def _deterministic_file_intent_tool_calls(
+    request: AgentRunRequest,
+) -> tuple[ToolCall, ...]:
+    if request.file_path is None or "analyze_ledger" not in request.allowed_tools:
+        return ()
+    message = _normalized_user_message(request.user_message)
+    if not _asks_for_file_explanation(message):
+        return ()
+
+    requested_tools: tuple[tuple[str, dict[str, object]], ...] = (
+        ("analyze_ledger", {}),
+        ("calculate_ledger_metrics", {}),
+        ("aggregate_ledger", {"group_by": ["account"]}),
+        ("detect_data_quality_issues", {}),
+        ("detect_tax_candidates", {}),
+    )
+    return tuple(
+        ToolCall(name=tool_name, arguments=arguments)
+        for tool_name, arguments in requested_tools
+        if tool_name in request.allowed_tools
+    )
+
+
+def _asks_for_file_explanation(message: str) -> bool:
+    subject_terms = ("fichier", "excel", "grand livre", "ledger")
+    explanation_terms = (
+        "analyse",
+        "analyser",
+        "decris",
+        "decrire",
+        "explique",
+        "expliquer",
+        "presente",
+        "presenter",
+        "resume",
+        "resumer",
+    )
+    return any(term in message for term in subject_terms) and any(
+        term in message for term in explanation_terms
+    )
+
+
+def _normalized_user_message(message: str) -> str:
+    return "".join(
+        character
+        for character in normalize("NFKD", message.casefold())
+        if not combining(character)
     )
 
 
@@ -1218,7 +1337,15 @@ def _initial_model_request(
                 "doit venir du tool deterministe correspondant. Reponds en "
                 "Markdown clair avec des paragraphes courts. Pour une reponse "
                 "simple, n'ajoute pas de titre comme Introduction. Evite les "
-                "formulations a la premiere personne. Choisis toujours le tool "
+                "formulations a la premiere personne. Si l'utilisateur fait "
+                "seulement une salutation ou une prise de contact, reponds en "
+                "une phrase courte et naturelle, sans parler des tools, des "
+                "regles, du RAG, de RAS, de calcul fiscal ou de recherche "
+                "juridique. Ne demande jamais quel tool utiliser et ne liste "
+                "jamais les outils disponibles a l'utilisateur. Ne mentionne "
+                "RAS, fiscalite, droit, CGI ou calcul que si la demande le "
+                "contient explicitement ou si un resultat de tool l'impose. "
+                "Choisis toujours le tool "
                 "le plus specifique a la question finale de l'utilisateur, pas "
                 "un tool preparatoire. Si l'utilisateur demande "
                 "d'afficher, lister ou rechercher des ecritures detaillees du "
@@ -1467,6 +1594,9 @@ def _final_model_request(
                     "a puces si utile, tableaux simples seulement si cela clarifie. "
                     "Pour une reponse simple, n'ajoute pas de titre comme "
                     "Introduction. Evite les formulations a la premiere personne. "
+                    "Ne parle pas des tools, de leur choix, ni des outils "
+                    "disponibles. Reste direct: une reponse courte suffit si "
+                    "la demande est simple. "
                     "Ne revele pas de donnees sensibles."
                 ),
             ),

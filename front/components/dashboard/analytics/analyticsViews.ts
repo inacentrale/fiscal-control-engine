@@ -9,9 +9,12 @@ export const analyticsViews: Array<{
     id: "general",
     label: "Vue",
     chartIds: [
+      "amount_by_account_class",
+      "debit_credit_by_account_class",
       "debit_credit_by_period",
       "cumulative_balance_by_period",
-      "data_quality_by_severity",
+      "amount_by_currency",
+      "data_quality_by_field",
     ],
   },
   {
@@ -22,12 +25,18 @@ export const analyticsViews: Array<{
       "cumulative_balance_by_period",
       "amount_by_period",
       "entries_by_period",
+      "amount_by_fiscal_year",
+      "entries_by_fiscal_year",
     ],
   },
   {
     id: "tva",
     label: "TVA",
-    chartIds: ["amount_by_tax_code", "tax_candidates_by_amount"],
+    chartIds: [
+      "amount_by_tax_code",
+      "entries_by_posting_key",
+      "tax_candidates_by_amount",
+    ],
   },
   {
     id: "tiers",
@@ -37,6 +46,6 @@ export const analyticsViews: Array<{
   {
     id: "qualite",
     label: "Qualité",
-    chartIds: ["data_quality_by_severity"],
+    chartIds: ["data_quality_by_severity", "data_quality_by_field"],
   },
 ];

@@ -11,10 +11,12 @@ import { formatCompactNumber } from "./analyticsUtils";
 
 export default function AnalyticsQualityDetails({
   dashboard,
+  defaultOpen = false,
 }: {
   dashboard: AgentFileDashboard;
+  defaultOpen?: boolean;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(defaultOpen);
   const rawIssues = dashboard.quality.issues;
   const issues = Array.isArray(rawIssues)
     ? rawIssues.filter(isQualityIssue)
