@@ -1,4 +1,5 @@
 import type { AgentFileDashboard } from "@/api/agent/types";
+import { cn } from "@/utils/ui/styles";
 
 import {
   dashboardNumber,
@@ -8,8 +9,10 @@ import {
 
 export default function AnalyticsKpiGrid({
   dashboard,
+  variant = "compact",
 }: {
   dashboard: AgentFileDashboard;
+  variant?: "compact" | "expanded";
 }) {
   const amountsByCurrency = Object.entries(
     dashboard.amount_metrics_by_currency ?? {}
@@ -44,16 +47,38 @@ export default function AnalyticsKpiGrid({
   ];
 
   return (
-    <div className="grid grid-cols-4 gap-1.5">
+    <div
+      className={cn(
+        "grid grid-cols-4",
+        variant === "expanded" ? "gap-3" : "gap-1.5"
+      )}
+    >
       {kpis.map((kpi) => (
         <div
           key={kpi.label}
-          className="rounded-[14px] bg-[#f5f8fa] px-2.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
+          className={cn(
+            "bg-[#f5f8fa] shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]",
+            variant === "expanded"
+              ? "rounded-[22px] px-5 py-4 ring-1 ring-[#e5eef2]"
+              : "rounded-[14px] px-2.5 py-2.5"
+          )}
         >
-          <p className="truncate text-[10px] font-semibold text-[#7d8d97]">
+          <p
+            className={cn(
+              "truncate font-semibold text-[#7d8d97]",
+              variant === "expanded" ? "text-[12px]" : "text-[10px]"
+            )}
+          >
             {kpi.label}
           </p>
-          <p className="mt-1 truncate text-[15px] font-semibold text-[#102734]">
+          <p
+            className={cn(
+              "truncate font-semibold text-[#102734]",
+              variant === "expanded"
+                ? "mt-2 text-[28px]"
+                : "mt-1 text-[15px]"
+            )}
+          >
             {kpi.value}
           </p>
         </div>

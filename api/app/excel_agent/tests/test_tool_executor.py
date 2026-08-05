@@ -931,6 +931,18 @@ def test_executor_detects_ras_candidates_with_structured_safe_summary(
     assert result.output["candidate_piece_count"] == 1
     assert result.output["status_counts"] == {"candidate_account_and_text": 1}
     assert result.output["candidate_amounts_by_currency"] == {"XOF": "100000"}
+    assert result.output["ras_review"] == {
+        "periods": [
+            {
+                "period": "1",
+                "evaluated_entry_count": 1,
+                "candidate_entry_count": 1,
+                "candidate_amount": "100000",
+                "currency": "XOF",
+                "candidate_rate": 1.0,
+            },
+        ],
+    }
     assert result.output["decision_status"] == "review_only_no_tax_conclusion"
     serialized_output = repr(result.output)
     assert "000042" not in serialized_output

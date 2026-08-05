@@ -112,16 +112,17 @@ export default function AnalyticsColumn() {
   return (
     <div className="flex min-h-full flex-col gap-4 text-[#102734]">
       <AnalyticsReveal>
-        <div className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-center gap-2">
+          <div className="min-w-0 flex-1 max-w-[360px]">
             <AnalyticsModeSwitcher
               activeMode={activeMode}
+              compact
               onChange={setActiveMode}
             />
           </div>
           <button
             aria-label="Agrandir la vue analytique"
-            className="grid size-[54px] shrink-0 place-items-center rounded-[22px] bg-white text-[#40515C] shadow-[0_14px_34px_rgba(64,81,92,0.08)] ring-1 ring-[#e5eef2] transition hover:bg-[#f5f8fa] hover:text-[#102734]"
+            className="flex size-9 shrink-0 cursor-pointer items-center justify-center text-[#40515C] transition hover:text-[#102734] active:scale-95"
             onClick={() => setIsExpanded(true)}
             type="button"
           >
@@ -151,12 +152,17 @@ export default function AnalyticsColumn() {
         />
       )}
 
-      {isExpanded && rasCandidatesQuery.data && (
+      {isExpanded && (
         <ExpandedAnalyticsModalBridge
+          activeView={activeView}
           activeMode={activeMode}
+          dashboard={dashboard}
           onClose={() => setIsExpanded(false)}
           onModeChange={setActiveMode}
-          result={rasCandidatesQuery.data}
+          onViewChange={setActiveView}
+          primaryChart={primaryChart}
+          result={rasCandidatesQuery.data ?? null}
+          secondaryCharts={secondaryCharts}
         />
       )}
     </div>
@@ -164,35 +170,51 @@ export default function AnalyticsColumn() {
 }
 
 function ExpandedAnalyticsModalBridge({
+  activeView,
   activeMode,
+  dashboard,
   onClose,
   onModeChange,
+  onViewChange,
+  primaryChart,
   result,
+  secondaryCharts,
 }: {
+  activeView: AnalyticsView;
   activeMode: AnalyticsMode;
+  dashboard: AgentFileDashboard;
   onClose: () => void;
   onModeChange: (mode: AnalyticsMode) => void;
-  result: RasCandidateDetectionResult;
+  onViewChange: (view: AnalyticsView) => void;
+  primaryChart: AgentDashboardChart | null;
+  result: RasCandidateDetectionResult | null;
+  secondaryCharts: AgentDashboardChart[];
 }) {
-  const signalItems = topEntries(result.signalCounts, 4);
-  const missingFactItems = topEntries(result.missingFactCounts, 3);
-  const periods = result.rasReview?.periods ?? [];
-  const amount = primaryAmount(result.candidateAmountsByCurrency);
+  const safeResult = result ?? emptyRasResult(dashboard.sheet_name);
+  const signalItems = topEntries(safeResult.signalCounts, 4);
+  const missingFactItems = topEntries(safeResult.missingFactCounts, 3);
+  const periods = safeResult.rasReview?.periods ?? [];
+  const amount = primaryAmount(safeResult.candidateAmountsByCurrency);
   const candidateRate =
-    result.evaluatedPieceCount > 0
-      ? result.candidatePieceCount / result.evaluatedPieceCount
+    safeResult.evaluatedPieceCount > 0
+      ? safeResult.candidatePieceCount / safeResult.evaluatedPieceCount
       : 0;
 
   return (
     <WithholdingExpandedModal
+      activeView={activeView}
       activeMode={activeMode}
       amount={amount}
+      dashboard={dashboard}
       candidateRate={candidateRate}
       missingFactItems={missingFactItems}
       onClose={onClose}
       onModeChange={onModeChange}
+      onViewChange={onViewChange}
       periods={periods}
-      result={result}
+      primaryChart={primaryChart}
+      result={safeResult}
+      secondaryCharts={secondaryCharts}
       signalItems={signalItems}
     />
   );
@@ -211,6 +233,26 @@ function primaryAmount(record: Record<string, string>) {
   const value = Number(rawValue);
   if (!currency || !Number.isFinite(value)) return null;
   return { currency, value };
+}
+
+function emptyRasResult(sheetName: string): RasCandidateDetectionResult {
+  return {
+    sheetName,
+    rowCount: 0,
+    evaluatedPieceCount: 0,
+    candidatePieceCount: 0,
+    excludedPieceCount: 0,
+    rejectedRowCount: 0,
+    statusCounts: {},
+    signalCounts: {},
+    operationHintCounts: {},
+    candidateAmountsByCurrency: {},
+    missingFactCounts: {},
+    issueCounts: {},
+    rasReview: null,
+    decisionStatus: "not_loaded",
+    semanticModel: null,
+  };
 }
 
 function LedgerAnalyticsContent({

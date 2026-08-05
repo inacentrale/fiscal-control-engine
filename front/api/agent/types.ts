@@ -216,9 +216,11 @@ export type RasCandidateDetectionResult = {
 
 export type RasReviewPeriod = {
   period: string;
+  evaluatedEntryCount: number;
   candidateEntryCount: number;
   candidateAmount: number;
   cumulativeCandidateAmount: number;
+  candidateRate: number;
   currency: string | null;
 };
 

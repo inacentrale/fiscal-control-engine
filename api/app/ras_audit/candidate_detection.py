@@ -68,6 +68,8 @@ class RasCandidateDetectionToolReport:
     source_row_count: int
     rejected_row_count: int
     normalization_issue_codes: tuple[str, ...]
+    ledger_entries: tuple[CanonicalLedgerEntry, ...]
+    reconstruction: AccountingEntryReconstructionReport
     report: RasCandidateDetectionReport
 
 

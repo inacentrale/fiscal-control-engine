@@ -1,4 +1,5 @@
 "use client";
+import type { ReactNode } from "react";
 import {
   Area,
   AreaChart,
@@ -16,21 +17,34 @@ import {
 } from "recharts";
 
 import type {
+  AgentDashboardChart,
+  AgentFileDashboard,
   RasCandidateDetectionResult,
   RasReviewPeriod,
 } from "@/api/agent/types";
-import { PageTitle } from "@/components/base/PageTitle";
-import { ClosePlainIcon } from "@/public/assets/icons/AnalyticsIcons";
+import { ModalTitle } from "@/components/base/modal";
+import {
+  DocumentTextIcon,
+  MoneyTickIcon,
+  PercentageSquareIcon,
+  SearchStatusIcon,
+} from "@/public/assets/icons/AnalyticsIcons";
 
 import AnalyticsReveal from "./AnalyticsReveal";
+import AnalyticsChartCard from "./AnalyticsChartCard";
+import AnalyticsKpiGrid from "./AnalyticsKpiGrid";
+import AnalyticsQualityDetails from "./AnalyticsQualityDetails";
+import AnalyticsViewTabs from "./AnalyticsViewTabs";
 import {
   chartColors,
+  findChart,
   formatAmount,
   formatCompactNumber,
 } from "./analyticsUtils";
 import WithholdingDonutSummary from "./WithholdingDonutSummary";
 import WithholdingTrendCard from "./WithholdingTrendCard";
 import AnalyticsModeSwitcher, { type AnalyticsMode } from "./AnalyticsModeSwitcher";
+import type { AnalyticsView } from "./analyticsViews";
 
 type WithholdingQueryState =
   | { status: "loading" }
@@ -87,10 +101,23 @@ export default function WithholdingAnalyticsPanel({
 
       <AnalyticsReveal>
         <div className="grid grid-cols-4 gap-1.5">
-          <RasKpi label="Pièces" value={result.evaluatedPieceCount} />
-          <RasKpi label="Candidats" value={result.candidatePieceCount} />
-          <RasKpi label="Taux" value={`${Math.round(candidateRate * 1000) / 10}%`} />
           <RasKpi
+            icon={<DocumentTextIcon className="size-3.5" />}
+            label="Pièces"
+            value={result.evaluatedPieceCount}
+          />
+          <RasKpi
+            icon={<SearchStatusIcon className="size-3.5" />}
+            label="Candidats"
+            value={result.candidatePieceCount}
+          />
+          <RasKpi
+            icon={<PercentageSquareIcon className="size-3.5" />}
+            label="Taux"
+            value={`${Math.round(candidateRate * 1000) / 10}%`}
+          />
+          <RasKpi
+            icon={<MoneyTickIcon className="size-3.5" />}
             label="Montant"
             value={amount ? formatAmount(amount.value, amount.currency) : "-"}
           />
@@ -131,11 +158,20 @@ export default function WithholdingAnalyticsPanel({
   );
 }
 
-function RasKpi({ label, value }: { label: string; value: number | string }) {
+function RasKpi({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number | string;
+}) {
   return (
     <div className="rounded-[14px] bg-[#f5f8fa] px-2.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
-      <p className="truncate text-[10px] font-semibold text-[#7d8d97]">
-        {label}
+      <p className="flex items-center gap-1.5 truncate text-[10px] font-semibold text-[#7d8d97]">
+        <span className="shrink-0 text-[#60737e]">{icon}</span>
+        <span className="truncate">{label}</span>
       </p>
       <p className="mt-1 truncate text-[15px] font-semibold text-[#102734]">
         {typeof value === "number" ? formatCompactNumber(value) : value}
@@ -214,117 +250,340 @@ function RasBreakdownCard({
 export function WithholdingExpandedModal({
   activeMode,
   amount,
+  dashboard,
+  activeView,
   candidateRate,
   missingFactItems,
   onModeChange,
   onClose,
+  onViewChange,
   periods,
+  primaryChart,
   result,
+  secondaryCharts,
   signalItems,
 }: {
   activeMode: AnalyticsMode;
+  activeView: AnalyticsView;
   amount: { currency: string; value: number } | null;
+  dashboard: AgentFileDashboard;
   candidateRate: number;
   missingFactItems: Array<{ label: string; value: number }>;
   onModeChange: (mode: AnalyticsMode) => void;
   onClose: () => void;
+  onViewChange: (view: AnalyticsView) => void;
   periods: RasReviewPeriod[];
+  primaryChart: AgentDashboardChart | null;
   result: RasCandidateDetectionResult;
+  secondaryCharts: AgentDashboardChart[];
   signalItems: Array<{ label: string; value: number }>;
 }) {
+  const handleModalActiveChange = (isActive: boolean) => {
+    if (!isActive) onClose();
+  };
+  const title =
+    activeMode === "withholding" ? "Contrôle RAS" : "Analyse Grand Livre";
+
   return (
     <div className="fixed inset-0 z-50 bg-[#102734]/26 p-3 backdrop-blur-[2px] sm:p-6">
       <section className="mx-auto flex h-full max-w-[1480px] flex-col overflow-hidden rounded-[30px] bg-[#f7fafb] shadow-[0_32px_90px_rgba(16,39,52,0.24)] ring-1 ring-white/70">
         <div className="sticky top-0 z-10 bg-[#f7fafb]/92 px-5 pt-5 backdrop-blur sm:px-7">
-          <PageTitle
-            actions={
-              <div className="flex items-center gap-3">
-                <div className="w-[300px] max-w-[56vw]">
+          <ModalTitle
+            className="mb-4 pb-1"
+            setActive={handleModalActiveChange}
+            title={
+              <span className="flex min-w-0 items-center gap-4">
+                <span className="shrink-0">{title}</span>
+                <span className="block w-[300px] max-w-[52vw]">
                   <AnalyticsModeSwitcher
                     activeMode={activeMode}
+                    compact
                     onChange={onModeChange}
                   />
-                </div>
-                <button
-                  aria-label="Réduire la vue agrandie"
-                  className="cursor-pointer text-[#40515C] transition hover:text-[#102734]"
-                  onClick={onClose}
-                  type="button"
-                >
-                  <ClosePlainIcon className="size-6 rotate-45" />
-                </button>
-              </div>
+                </span>
+              </span>
             }
-            title="Contrôle RAS"
+            titleClass="!max-w-none !overflow-visible !text-clip !whitespace-normal text-[#102734]"
           />
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-7">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <ExpandedKpi label="Pièces évaluées" value={result.evaluatedPieceCount} />
-            <ExpandedKpi label="Candidats RAS" value={result.candidatePieceCount} />
-            <ExpandedKpi
-              label="Taux candidat"
-              value={`${Math.round(candidateRate * 1000) / 10}%`}
-            />
-            <ExpandedKpi
-              label="Montant candidat"
-              value={amount ? formatAmount(amount.value, amount.currency) : "-"}
-            />
-          </div>
+          {activeMode === "withholding" ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <ExpandedKpi
+                  accent="#40515C"
+                  detail="pièces"
+                  icon={<DocumentTextIcon className="size-5" />}
+                  label="Évaluées"
+                  muted
+                  progress={
+                    result.rowCount > 0
+                      ? result.evaluatedPieceCount / result.rowCount
+                      : 0
+                  }
+                  value={result.evaluatedPieceCount}
+                />
+                <ExpandedKpi
+                  accent="#7FA6B7"
+                  detail="candidats RAS"
+                  icon={<SearchStatusIcon className="size-5" />}
+                  label="À revoir"
+                  progress={candidateRate}
+                  strong
+                  value={result.candidatePieceCount}
+                />
+                <ExpandedKpi
+                  accent="#12A17D"
+                  detail="taux candidat"
+                  icon={<PercentageSquareIcon className="size-5" />}
+                  label="Ratio"
+                  progress={candidateRate}
+                  value={`${Math.round(candidateRate * 1000) / 10}%`}
+                />
+                <ExpandedKpi
+                  accent="#D7A44A"
+                  detail={amount?.currency ?? "montant"}
+                  icon={<MoneyTickIcon className="size-5" />}
+                  label="Montant"
+                  progress={1}
+                  value={amount ? formatAmount(amount.value, amount.currency) : "-"}
+                />
+              </div>
 
-          <div className="mt-5 grid gap-5 xl:grid-cols-[1.12fr_0.88fr]">
-            <ExpandedTrendCard periods={periods} />
-            <ExpandedStatusCard result={result} />
-          </div>
+              <div
+                className={[
+                  "mt-5 grid gap-5",
+                  periods.length > 0
+                    ? "xl:grid-cols-[1.12fr_0.88fr]"
+                    : "xl:grid-cols-1",
+                ].join(" ")}
+              >
+                {periods.length > 0 && <ExpandedTrendCard periods={periods} />}
+                <ExpandedStatusCard result={result} />
+              </div>
 
-          <div className="mt-5 grid gap-5 xl:grid-cols-2">
-            <ExpandedBarCard
-              items={signalItems}
-              subtitle="Comptages par signal déterministe"
-              title="Signaux principaux"
-            />
-            <ExpandedBarCard
-              items={topEntries(result.operationHintCounts, 6)}
-              subtitle="Nature probable de l'opération"
-              title="Indices opérationnels"
-            />
-          </div>
+              {periods.length > 0 && (
+                <div className="mt-5">
+                  <ExpandedRasPeriodVolumeCard periods={periods} />
+                </div>
+              )}
 
-          <div className="mt-5 grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-            <ExpandedBarCard
-              items={missingFactItems}
-              subtitle="Informations à confirmer avant décision"
-              title="Faits manquants"
-              tone="warning"
+              <div className="mt-5 grid gap-5 xl:grid-cols-2">
+                <ExpandedBarCard
+                  items={signalItems}
+                  subtitle="Comptages par signal déterministe"
+                  title="Signaux principaux"
+                />
+                <ExpandedBarCard
+                  items={topEntries(result.operationHintCounts, 6)}
+                  subtitle="Nature probable de l'opération"
+                  title="Indices opérationnels"
+                />
+              </div>
+
+              <div className="mt-5 grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+                <ExpandedBarCard
+                  items={missingFactItems}
+                  subtitle="Informations à confirmer avant décision"
+                  title="Faits manquants"
+                  tone="warning"
+                />
+                <ExpandedBarCard
+                  items={topEntries(result.issueCounts, 6)}
+                  subtitle="Points de qualité détectés"
+                  title="Qualité des données"
+                  tone="warning"
+                />
+              </div>
+            </>
+          ) : (
+            <ExpandedLedgerView
+              activeView={activeView}
+              dashboard={dashboard}
+              onViewChange={onViewChange}
+              primaryChart={primaryChart}
+              secondaryCharts={secondaryCharts}
             />
-            <ExpandedBarCard
-              items={topEntries(result.issueCounts, 6)}
-              subtitle="Points de qualité détectés"
-              title="Qualité des données"
-              tone="warning"
-            />
-          </div>
+          )}
         </div>
       </section>
     </div>
   );
 }
 
+function ExpandedLedgerView({
+  activeView,
+  dashboard,
+  onViewChange,
+  primaryChart,
+  secondaryCharts,
+}: {
+  activeView: AnalyticsView;
+  dashboard: AgentFileDashboard;
+  onViewChange: (view: AnalyticsView) => void;
+  primaryChart: AgentDashboardChart | null;
+  secondaryCharts: AgentDashboardChart[];
+}) {
+  const priorityCharts = [
+    findChart(dashboard, "debit_credit_by_period"),
+    findChart(dashboard, "cumulative_balance_by_period"),
+    findChart(dashboard, "entries_by_period"),
+  ].filter((chart): chart is AgentDashboardChart => Boolean(chart));
+  const displayedIds = new Set(priorityCharts.map((chart) => chart.chart_id));
+  const remainingCharts = secondaryCharts.filter(
+    (chart) => !displayedIds.has(chart.chart_id)
+  );
+
+  return (
+    <>
+      <AnalyticsKpiGrid dashboard={dashboard} variant="expanded" />
+      <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_1fr]">
+        <AnalyticsQualityDetails dashboard={dashboard} />
+        {primaryChart && (
+          <div className="space-y-2">
+            <AnalyticsChartCard chart={primaryChart} featured />
+          </div>
+        )}
+      </div>
+      <div className="mt-5">
+        <AnalyticsViewTabs activeView={activeView} onChange={onViewChange} />
+      </div>
+      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+        {[...priorityCharts, ...remainingCharts].map((chart) => (
+          <AnalyticsChartCard chart={chart} key={chart.chart_id} />
+        ))}
+      </div>
+    </>
+  );
+}
+
 function ExpandedKpi({
+  accent,
+  detail,
+  icon,
   label,
+  muted = false,
+  progress,
+  strong = false,
   value,
 }: {
+  accent: string;
+  detail: string;
+  icon: ReactNode;
   label: string;
+  muted?: boolean;
+  progress: number;
+  strong?: boolean;
   value: number | string;
 }) {
+  const width = `${Math.round(Math.max(0.06, Math.min(progress, 1)) * 100)}%`;
+
   return (
-    <div className="rounded-[24px] bg-white px-5 py-4 shadow-[0_18px_44px_rgba(64,81,92,0.07)] ring-1 ring-[#e5eef2]">
-      <p className="text-[12px] font-semibold text-[#7d8d97]">{label}</p>
-      <p className="mt-2 truncate text-[28px] font-semibold text-[#102734]">
+    <div
+      className={[
+        "overflow-hidden rounded-[22px] bg-white px-5 py-4 shadow-[0_18px_44px_rgba(64,81,92,0.07)] ring-1",
+        strong ? "ring-[#d7e8ef]" : "ring-[#e5eef2]",
+      ].join(" ")}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="truncate text-[12px] font-semibold text-[#7d8d97]">
+          {label}
+        </p>
+        <span
+          className="flex size-9 shrink-0 items-center justify-center rounded-full"
+          style={{ backgroundColor: `${accent}14`, color: accent }}
+        >
+          {icon}
+        </span>
+      </div>
+      <p
+        className={[
+          "mt-2 truncate font-semibold text-[#102734]",
+          strong ? "text-[32px]" : "text-[28px]",
+        ].join(" ")}
+      >
         {typeof value === "number" ? formatCompactNumber(value) : value}
       </p>
+      <div className="mt-3 flex items-center gap-2">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#edf3f6]">
+          <div
+            className="h-full rounded-full transition-all duration-700 ease-out"
+            style={{ backgroundColor: muted ? "#8B98A3" : accent, width }}
+          />
+        </div>
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a98a2]">
+          {detail}
+        </span>
+      </div>
     </div>
+  );
+}
+
+function ExpandedRasPeriodVolumeCard({
+  periods,
+}: {
+  periods: RasReviewPeriod[];
+}) {
+  const data = periods.map((period) => ({
+    ...period,
+    shortPeriod: `P${period.period}`,
+    candidateRatePercent: Math.round(period.candidateRate * 1000) / 10,
+  }));
+
+  return (
+    <section className="rounded-[28px] bg-white p-5 shadow-[0_18px_44px_rgba(64,81,92,0.07)] ring-1 ring-[#e5eef2]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-[18px] font-semibold text-[#102734]">
+            Pièces RAS par période
+          </h3>
+          <p className="mt-1 text-[12px] font-medium text-[#7d8d97]">
+            Candidats comparés au volume évalué
+          </p>
+        </div>
+        <span className="rounded-full bg-[#edf5f8] px-3 py-1.5 text-[12px] font-semibold text-[#40515C]">
+          {data.length} période(s)
+        </span>
+      </div>
+
+      <div className="mt-5 h-[280px] w-full outline-none [&_.recharts-wrapper]:outline-none [&_svg]:outline-none">
+        <ResponsiveContainer height="100%" width="100%">
+          <BarChart data={data} margin={{ top: 12, right: 18, bottom: 4, left: -12 }}>
+            <CartesianGrid stroke="#EAF1F4" strokeDasharray="6 10" vertical={false} />
+            <XAxis
+              axisLine={false}
+              dataKey="shortPeriod"
+              tick={{ fill: "#8b9aa3", fontSize: 11, fontWeight: 700 }}
+              tickLine={false}
+              tickMargin={12}
+            />
+            <YAxis
+              axisLine={false}
+              tick={{ fill: "#9aa8b0", fontSize: 11, fontWeight: 700 }}
+              tickFormatter={(value) => formatCompactNumber(Number(value))}
+              tickLine={false}
+              width={56}
+            />
+            <Tooltip content={<ExpandedRasVolumeTooltip />} cursor={{ fill: "rgba(127,166,183,0.10)" }} />
+            <Bar
+              dataKey="evaluatedEntryCount"
+              fill="#D9E3E8"
+              maxBarSize={28}
+              name="Évaluées"
+              radius={[8, 8, 0, 0]}
+            />
+            <Bar
+              dataKey="candidateEntryCount"
+              fill="#40515C"
+              maxBarSize={28}
+              name="Candidats"
+              radius={[8, 8, 0, 0]}
+            />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </section>
   );
 }
 
@@ -421,6 +680,36 @@ function ExpandedTrendCard({ periods }: { periods: RasReviewPeriod[] }) {
         </p>
       )}
     </section>
+  );
+}
+
+function ExpandedRasVolumeTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    name?: string;
+    value?: number;
+    payload?: { period?: string; candidateRatePercent?: number };
+  }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const period = payload[0]?.payload?.period;
+  const rate = payload[0]?.payload?.candidateRatePercent ?? 0;
+
+  return (
+    <div className="rounded-[16px] bg-[#102734] px-3 py-2 text-white shadow-[0_14px_34px_rgba(16,39,52,0.22)]">
+      <p className="text-[11px] font-medium text-white/70">Période P{period}</p>
+      {payload.map((item) => (
+        <p className="mt-1 text-[13px] font-semibold" key={item.name}>
+          {item.name}: {formatCompactNumber(Number(item.value ?? 0))}
+        </p>
+      ))}
+      <p className="mt-1 text-[12px] font-semibold text-white/75">
+        Taux candidat: {rate}%
+      </p>
+    </div>
   );
 }
 

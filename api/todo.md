@@ -90,6 +90,8 @@ Checklist operationnelle du chantier API. Les cases seront cochees au fur et a m
 - [x] Ajouter un routeur deterministe de tools: choisir le ou les tools selon l'intention utilisateur avant appel LLM, puis tester chaque intention separement.
 - [x] Router une demande generale du type `Explique-moi cet Excel` vers une analyse globale multi-tools avant appel LLM.
 - [x] Ajouter des tests de consistance tool par tool: fixture Excel anonymisee, sortie attendue stable, absence de donnees sensibles, limites de lignes respectees.
+- [x] Enrichir le dashboard Grand Livre avec les graphes API `debit_credit_by_period` et `cumulative_balance_by_period`.
+- [x] Enrichir `detect_ras_candidates` avec `ras_review.periods`: periode, pieces evaluees, candidats, montant, devise et taux candidat.
 
 ## Orchestrateur Agent
 

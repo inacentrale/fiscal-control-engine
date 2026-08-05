@@ -78,6 +78,8 @@ Checklist operationnelle du chantier front. Les cases seront cochees au fur et a
 - [x] Brancher la troisieme colonne sur `GET /api/agent/sessions/{session_id}/context`.
 - [x] Afficher les graphes dashboard riches: comptes, periodes, TVA, tiers, qualite, candidats fiscaux.
 - [x] Ajouter la vue agrandie du controle RAS avec icone locale `Maximize24Icon`, modal quasi plein ecran, KPI, donut, bar charts et courbes.
+- [x] Ajouter les graphes Grand Livre enrichis dans la vue agrandie: debit/credit/solde par periode, solde cumule, ecritures par periode.
+- [x] Ajouter la comparaison RAS par periode: pieces evaluees, candidats et taux candidat.
 - [x] Organiser la troisieme colonne en vue principale, KPI compacts, onglets metier et cartes animees.
 - [ ] Afficher les resultats `query_ledger_entries` depuis le payload structure, pas depuis le texte LLM.
 - [ ] Afficher un resume court pour les ecritures: total trouve, page affichee, taille page.

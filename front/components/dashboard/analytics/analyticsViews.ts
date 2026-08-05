@@ -8,12 +8,21 @@ export const analyticsViews: Array<{
   {
     id: "general",
     label: "Vue",
-    chartIds: ["amount_by_period", "data_quality_by_severity"],
+    chartIds: [
+      "debit_credit_by_period",
+      "cumulative_balance_by_period",
+      "data_quality_by_severity",
+    ],
   },
   {
     id: "periodes",
     label: "Périodes",
-    chartIds: ["amount_by_period", "entries_by_period"],
+    chartIds: [
+      "debit_credit_by_period",
+      "cumulative_balance_by_period",
+      "amount_by_period",
+      "entries_by_period",
+    ],
   },
   {
     id: "tva",

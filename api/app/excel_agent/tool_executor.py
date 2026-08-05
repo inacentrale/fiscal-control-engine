@@ -88,7 +88,7 @@ from app.ras_audit.counterpart import (
     RasCounterpartStatus,
     RasCounterpartToolReport,
 )
-from app.ras_audit.domain import LedgerField
+from app.ras_audit.domain import CanonicalLedgerEntry, LedgerField
 from app.ras_audit.fact_context import (
     RasFactContextAttestor,
     RasFactContextError,
@@ -710,6 +710,8 @@ class ExcelToolExecutor:
                             normalization_issue_codes=tuple(
                                 issue.code for issue in normalization_report.issues
                             ),
+                            ledger_entries=normalization_report.entries,
+                            reconstruction=reconstruction,
                             report=RasCandidateDetector(
                                 posting_key_rules=self._posting_key_rules,
                                 account_mappings=self._ras_ledger_account_mappings,
@@ -1787,6 +1789,7 @@ def _serialize_result(
                 currency: str(amount)
                 for currency, amount in sorted(amount_totals.items())
             },
+            "ras_review": _ras_review_summary(result),
             "missing_fact_counts": candidate_missing_fact_counts,
             "issue_counts": candidate_issue_counts,
             "rejected_row_count": result.rejected_row_count,
@@ -2264,6 +2267,84 @@ def _accounting_entry_selector(raw_value: object) -> dict[str, str | int] | None
         "journal": journal.strip(),
         "document_number": document_number.strip(),
     }
+
+
+def _ras_review_summary(result: RasCandidateDetectionToolReport) -> dict[str, object]:
+    line_by_id = {entry.line_id: entry for entry in result.ledger_entries}
+    evaluated_counts: dict[str, int] = {}
+    for entry in result.reconstruction.entries:
+        period = _ledger_entry_period(entry.line_ids, line_by_id)
+        evaluated_counts[period] = evaluated_counts.get(period, 0) + 1
+
+    candidate_counts: dict[str, int] = {}
+    amounts_by_period_currency: dict[tuple[str, str | None], Decimal] = {}
+    for candidate in result.report.candidates:
+        period = _ledger_entry_period(candidate.line_ids, line_by_id)
+        candidate_counts[period] = candidate_counts.get(period, 0) + 1
+        if not candidate.amounts:
+            amounts_by_period_currency.setdefault((period, None), Decimal("0"))
+        for amount in candidate.amounts:
+            key = (period, amount.currency)
+            amounts_by_period_currency[key] = (
+                amounts_by_period_currency.get(key, Decimal("0")) + amount.amount
+            )
+
+    period_currency_keys = set(amounts_by_period_currency)
+    periods_with_amount = {
+        period for period, currency in period_currency_keys if currency
+    }
+    period_currency_keys.update(
+        (period, None)
+        for period in candidate_counts
+        if period not in periods_with_amount
+    )
+    periods: list[dict[str, object]] = []
+    for period, currency in sorted(period_currency_keys, key=_ras_period_sort_key):
+        evaluated_count = evaluated_counts.get(period, 0)
+        candidate_count = candidate_counts.get(period, 0)
+        periods.append(
+            {
+                "period": period,
+                "evaluated_entry_count": evaluated_count,
+                "candidate_entry_count": candidate_count,
+                "candidate_amount": str(
+                    amounts_by_period_currency.get((period, currency), Decimal("0"))
+                ),
+                "currency": currency,
+                "candidate_rate": (
+                    round(candidate_count / evaluated_count, 6)
+                    if evaluated_count > 0
+                    else 0
+                ),
+            }
+        )
+    return {"periods": periods}
+
+
+def _ledger_entry_period(
+    line_ids: tuple[str, ...],
+    line_by_id: dict[str, CanonicalLedgerEntry],
+) -> str:
+    period_values: set[int] = set()
+    for line_id in line_ids:
+        line = line_by_id.get(line_id)
+        if line is not None and line.period is not None:
+            period_values.add(line.period)
+    periods = sorted(period_values)
+    if len(periods) == 1:
+        return str(periods[0])
+    if len(periods) > 1:
+        return "Multi-périodes"
+    return "Sans période"
+
+
+def _ras_period_sort_key(item: tuple[str, str | None]) -> tuple[int, int, str]:
+    period, currency = item
+    try:
+        period_value = int(float(period))
+    except ValueError:
+        return (1, 99, f"{period}:{currency or ''}")
+    return (0, period_value, currency or "")
 
 
 def _counterpart_amount_totals(

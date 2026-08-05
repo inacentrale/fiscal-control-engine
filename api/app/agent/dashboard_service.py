@@ -336,6 +336,8 @@ def _field_amount_charts(
     aggregations: dict[str, object],
 ) -> list[AgentDashboardChartResponse]:
     charts: list[AgentDashboardChartResponse] = []
+    period_groups = _sort_period_groups(_aggregation_groups(aggregations, "period"))
+    charts.extend(_period_balance_charts(period_groups))
     field_specs = (
         ("period", "amount_by_period", "Montants par période", "line", "Montant"),
         ("period", "entries_by_period", "Ecritures par période", "line", "Ecritures"),
@@ -400,6 +402,57 @@ def _field_amount_charts(
             ),
         )
     return charts
+
+
+def _period_balance_charts(
+    period_groups: list[dict[str, object]],
+) -> list[AgentDashboardChartResponse]:
+    if not period_groups:
+        return []
+    labels = [str(period) for period in range(1, 13)]
+    debit_values = _period_values(period_groups, "debit_total")
+    credit_values = _period_values(period_groups, "credit_total")
+    balance_values = _period_values(period_groups, "balance")
+    cumulative_values: list[float | int] = []
+    cumulative_balance = 0.0
+    for value in balance_values:
+        cumulative_balance = round(cumulative_balance + float(value), 2)
+        cumulative_values.append(cumulative_balance)
+    currency = _common_group_currency(period_groups)
+    return [
+        AgentDashboardChartResponse(
+            chart_id="debit_credit_by_period",
+            title="Débit, crédit et solde par période",
+            kind="composed",
+            metric="amount_sum",
+            labels=labels,
+            values=balance_values,
+            series=[
+                {"name": "Débit", "values": debit_values},
+                {"name": "Crédit", "values": credit_values},
+                {"name": "Solde", "values": balance_values},
+            ],
+            metadata={
+                "dimension": "period",
+                "currency": currency,
+                "currencies": _group_currencies(period_groups),
+            },
+        ),
+        AgentDashboardChartResponse(
+            chart_id="cumulative_balance_by_period",
+            title="Solde cumulé par période",
+            kind="line",
+            metric="cumulative_balance",
+            labels=labels,
+            values=cumulative_values,
+            series=[{"name": "Solde cumulé", "values": cumulative_values}],
+            metadata={
+                "dimension": "period",
+                "currency": currency,
+                "currencies": _group_currencies(period_groups),
+            },
+        ),
+    ]
 
 
 def _quality_charts(quality: dict[str, object]) -> list[AgentDashboardChartResponse]:
@@ -537,16 +590,20 @@ def _period_labels_and_values(
     groups: list[dict[str, object]],
     metric: str,
 ) -> tuple[list[str], list[float | int]]:
+    return ([str(period) for period in range(1, 13)], _period_values(groups, metric))
+
+
+def _period_values(
+    groups: list[dict[str, object]],
+    metric: str,
+) -> list[float | int]:
     values_by_period: dict[int, float | int] = {}
     for group in groups:
         period = _period_int(group.get("key"))
         value = group.get(metric)
         if period is not None and isinstance(value, int | float):
             values_by_period[period] = value
-    return (
-        [str(period) for period in range(1, 13)],
-        [values_by_period.get(period, 0) for period in range(1, 13)],
-    )
+    return [values_by_period.get(period, 0) for period in range(1, 13)]
 
 
 def _sort_period_groups(

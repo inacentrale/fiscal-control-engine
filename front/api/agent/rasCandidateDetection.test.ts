@@ -16,16 +16,20 @@ describe("rasCandidateDetection", () => {
     expect(result?.rasReview?.periods).toEqual([
       {
         period: "1",
+        evaluatedEntryCount: 30,
         candidateEntryCount: 12,
         candidateAmount: 30000,
         cumulativeCandidateAmount: 30000,
+        candidateRate: 0.4,
         currency: "XOF",
       },
       {
         period: "2",
+        evaluatedEntryCount: 40,
         candidateEntryCount: 18,
         candidateAmount: 70000,
         cumulativeCandidateAmount: 100000,
+        candidateRate: 0.45,
         currency: "XOF",
       },
     ]);
@@ -76,14 +80,18 @@ function buildResponse(): AgentRunResponse {
             periods: [
               {
                 period: "2",
+                evaluated_entry_count: 40,
                 candidate_entry_count: 18,
                 candidate_amount: "70000",
+                candidate_rate: 0.45,
                 currency: "XOF",
               },
               {
                 period: "1",
+                evaluated_entry_count: 30,
                 candidate_entry_count: 12,
                 candidate_amount: 30000,
+                candidate_rate: 0.4,
                 currency: "XOF",
               },
             ],

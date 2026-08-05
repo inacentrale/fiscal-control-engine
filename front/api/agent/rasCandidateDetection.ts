@@ -127,6 +127,19 @@ function parseRasReviewPeriod(value: unknown): RasReviewPeriod | null {
     "amount_sum",
     "amountSum",
   ]);
+  const evaluatedEntryCount =
+    firstNumber(value, [
+      "evaluated_entry_count",
+      "evaluatedEntryCount",
+      "evaluated_count",
+      "evaluatedCount",
+    ]) ?? candidateEntryCount;
+  const candidateRate =
+    firstNumber(value, [
+      "candidate_rate",
+      "candidateRate",
+      "rate",
+    ]) ?? 0;
   const currency = firstString(value, ["currency", "devise"]);
 
   if (!period || candidateEntryCount === null || candidateAmount === null) {
@@ -135,9 +148,11 @@ function parseRasReviewPeriod(value: unknown): RasReviewPeriod | null {
 
   return {
     period,
+    evaluatedEntryCount: evaluatedEntryCount ?? candidateEntryCount,
     candidateEntryCount,
     candidateAmount,
     cumulativeCandidateAmount: candidateAmount,
+    candidateRate,
     currency,
   };
 }
