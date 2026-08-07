@@ -6,10 +6,10 @@ from pathlib import Path
 from queue import Queue
 from tempfile import NamedTemporaryFile
 from threading import Thread
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.agent.dashboard_service import build_file_dashboard, create_excel_tool_executor
 from app.agent.orchestrator import (
@@ -39,10 +39,16 @@ from app.config import Settings, get_settings
 from app.database import Base, create_database_engine, create_session_factory
 from app.llm.domain import ToolCall
 from app.llm.model_provider_factory import create_model_provider
+from app.ras_audit.audit_report import RasAuditReport, RasAuditReportGenerator
 from app.ras_audit.fact_context import (
     RasExplicitFactExtractor,
     RasFactContextAttestor,
+    RasFactExtraction,
     load_ras_user_fact_patterns,
+)
+from app.ras_audit.persisted_report import (
+    PersistedRasAuditReportError,
+    PersistedRasAuditReportService,
 )
 from app.ras_audit.persistence import SqlAlchemyRasAuditRepository
 from app.schemas.agent import (
@@ -70,6 +76,7 @@ DEFAULT_AGENT_TOOLS = (
     "classify_ledger_schema",
     "analyze_ledger",
     "aggregate_ledger",
+    "aggregate_business_nature",
     "query_ledger_entries",
     "calculate_ledger_metrics",
     "detect_data_quality_issues",
@@ -191,6 +198,20 @@ async def get_agent_repository(
 AgentRepositoryDependency = Annotated[
     SqlAlchemyAgentRepository | None,
     Depends(get_agent_repository),
+]
+
+
+async def get_ras_audit_repository(
+    settings: SettingsDependency,
+) -> SqlAlchemyRasAuditRepository | None:
+    if not settings.database_url:
+        return None
+    return _get_ras_audit_repository(settings.database_url)
+
+
+RasAuditRepositoryDependency = Annotated[
+    SqlAlchemyRasAuditRepository | None,
+    Depends(get_ras_audit_repository),
 ]
 
 
@@ -500,6 +521,173 @@ async def get_agent_session_context(
             _to_session_context_event_response(event) for event in last_events
         ],
     )
+
+
+def _ras_audit_report_response(
+    report: RasAuditReport,
+    audit_id: str,
+    report_format: Literal["csv", "json"],
+) -> Response:
+    generator = RasAuditReportGenerator()
+    safe_audit_id = "".join(
+        character if character.isalnum() or character in "-_" else "_"
+        for character in audit_id.strip()
+    )
+    if report_format == "json":
+        content = generator.to_json(report)
+        media_type = "application/json"
+    else:
+        content = generator.to_csv(report)
+        media_type = "text/csv"
+    filename = f"rapport-audit-ras-{safe_audit_id}.{report_format}"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/ras-audits/{audit_id}/report",
+    response_model=None,
+    responses={
+        404: {"model": AgentErrorResponse},
+        503: {"model": AgentErrorResponse},
+    },
+)
+async def download_ras_audit_report(
+    audit_id: str,
+    repository: RasAuditRepositoryDependency,
+    report_format: Annotated[Literal["csv", "json"], Query(alias="format")] = "csv",
+) -> Response | JSONResponse:
+    if repository is None:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="ras_audit_repository_unavailable",
+                public_message="La persistance des audits RAS est indisponible.",
+            ),
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    try:
+        report = PersistedRasAuditReportService(repository).generate(audit_id)
+    except PersistedRasAuditReportError:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="ras_audit_report_not_found",
+                public_message="Le rapport d'audit RAS demandé est introuvable.",
+            ),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    return _ras_audit_report_response(report, audit_id, report_format)
+
+
+@router.post(
+    "/sessions/{session_id}/ras-audit-report",
+    response_model=None,
+    responses={
+        400: {"model": AgentErrorResponse},
+        404: {"model": AgentErrorResponse},
+        503: {"model": AgentErrorResponse},
+    },
+)
+async def run_and_download_ras_audit_report(
+    session_id: str,
+    settings: SettingsDependency,
+    repository: AgentRepositoryDependency,
+    ras_audit_repository: RasAuditRepositoryDependency,
+    report_format: Annotated[Literal["csv", "json"], Query(alias="format")] = "csv",
+) -> Response | JSONResponse:
+    if repository is None or ras_audit_repository is None:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="ras_audit_repository_unavailable",
+                public_message="La persistance des audits RAS est indisponible.",
+            ),
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    if settings.ras_fact_context_signing_key is None:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="ras_fact_context_unavailable",
+                public_message="L'attestation des audits RAS n'est pas configurée.",
+            ),
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    active_file = repository.get_active_file(session_id)
+    if active_file is None:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="agent_no_active_file",
+                public_message="Aucun fichier actif pour cette session.",
+            ),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    stored_file = repository.find_file(
+        session_id=active_file.session_id,
+        file_id=active_file.file_id,
+    )
+    if stored_file is None:
+        return _to_error_response(_file_missing_error())
+    if stored_file.expires_at <= datetime.now(tz=UTC):
+        return _to_error_response(_file_expired_error())
+    if not stored_file.path.is_file():
+        return _to_error_response(_file_missing_error())
+    if not active_file.sheet_names:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="agent_file_invalid",
+                public_message="Le fichier Excel actif n'a aucune feuille lisible.",
+            ),
+        )
+    executor = create_excel_tool_executor(
+        settings,
+        ras_audit_repository=ras_audit_repository,
+    )
+    attestor = RasFactContextAttestor(
+        settings.ras_fact_context_signing_key.get_secret_value(),
+    )
+    token = attestor.issue(
+        message="",
+        extraction=RasFactExtraction(
+            facts=(),
+            conflicting_fact_names=(),
+            pattern_versions=(),
+        ),
+        session_id=session_id,
+        file_id=active_file.file_id,
+    )
+    batch_result = executor.execute(
+        ToolCall(
+            name="run_ras_audit_batch",
+            arguments={
+                "file_path": str(stored_file.path),
+                "sheet_name": active_file.sheet_names[0],
+            },
+        ),
+        ras_fact_context_token=token,
+    )
+    if not batch_result.ok:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code=batch_result.error_code or "ras_audit_batch_failed",
+                public_message="L'audit RAS n'a pas pu être exécuté.",
+            ),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    audit_id = str(batch_result.output["audit_id"])
+    try:
+        report = PersistedRasAuditReportService(ras_audit_repository).generate(
+            audit_id
+        )
+    except PersistedRasAuditReportError:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="ras_audit_report_not_found",
+                public_message="Le rapport d'audit RAS demandé est introuvable.",
+            ),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    return _ras_audit_report_response(report, audit_id, report_format)
 
 
 @router.post(

@@ -39,6 +39,13 @@ LEDGER_AGGREGATION_FIELDS = (
     "posting_key",
 )
 
+LEDGER_BUSINESS_NATURE_DIMENSIONS = (
+    "period",
+    "fiscal_year",
+    "document_type",
+    "tax_code",
+)
+
 LEDGER_QUERY_OUTPUT_FIELDS = (
     "account",
     "amount",

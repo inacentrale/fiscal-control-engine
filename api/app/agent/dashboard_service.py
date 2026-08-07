@@ -6,11 +6,8 @@ from app.config import Settings
 from app.excel_agent.excel_tools import ExcelAgentTools
 from app.excel_agent.tool_executor import ExcelToolExecutor
 from app.excel_agent.tool_registry import create_excel_tool_registry
-from app.ledger_analysis.account_balance_rules import (
-    AccountBalanceRule,
-    find_account_balance_rule,
-    load_account_balance_rules,
-)
+from app.ledger_analysis.account_balance_rules import load_account_balance_rules
+from app.ledger_analysis.constants import LEDGER_BUSINESS_NATURE_DIMENSIONS
 from app.ledger_analysis.posting_key_rules import load_posting_key_rules
 from app.llm.domain import ToolCall
 from app.rag_source.embedding_provider_factory import create_embedding_provider
@@ -204,9 +201,21 @@ def build_file_dashboard(
             ),
         ),
     )
-    account_balance_rules = load_account_balance_rules(
-        Path(settings.account_balance_rules_path),
-    )
+    business_nature_by_dimension = {
+        dimension: _safe_tool_output(
+            executor.execute(
+                ToolCall(
+                    name="aggregate_business_nature",
+                    arguments={
+                        "file_path": str(file_path),
+                        "sheet_name": sheet_name,
+                        "dimension": dimension,
+                    },
+                ),
+            ),
+        )
+        for dimension in LEDGER_BUSINESS_NATURE_DIMENSIONS
+    }
     quality = _successful_tool_output(
         executor.execute(
             ToolCall(
@@ -242,15 +251,12 @@ def build_file_dashboard(
         amount_metrics_by_currency=_currency_metrics(
             metrics.get("metrics_by_currency"),
         ),
-        business_balances_by_nature=_business_balances_by_nature(
-            aggregation=aggregation,
-            account_balance_rules=account_balance_rules,
-        ),
         charts=_dashboard_charts(
             metrics=metrics,
             aggregation=aggregation,
             quality=quality,
             tax_candidates=tax_candidates,
+            business_nature_by_dimension=business_nature_by_dimension,
         ),
         quality={
             "issue_count": quality.get("issue_count", 0),
@@ -303,133 +309,19 @@ def _dashboard_charts(
     aggregation: dict[str, object],
     quality: dict[str, object],
     tax_candidates: dict[str, object],
+    business_nature_by_dimension: dict[str, dict[str, object]] | None = None,
 ) -> list[AgentDashboardChartResponse]:
     charts: list[AgentDashboardChartResponse] = []
     aggregations = _dict_value(aggregation.get("aggregations"))
     charts.extend(_account_charts(metrics, aggregations))
     charts.extend(_account_class_charts(aggregations))
     charts.extend(_field_amount_charts(aggregations))
+    for dimension, nature_output in (business_nature_by_dimension or {}).items():
+        groups = _list_value(nature_output.get("groups"))
+        charts.extend(_business_nature_charts(dimension, groups))
     charts.extend(_quality_charts(quality))
     charts.extend(_tax_candidate_charts(tax_candidates))
     return charts
-
-
-def _business_balances_by_nature(
-    *,
-    aggregation: dict[str, object],
-    account_balance_rules: tuple[AccountBalanceRule, ...],
-) -> list[dict[str, object]]:
-    account_groups = _aggregation_groups(
-        _dict_value(aggregation.get("aggregations")),
-        "account",
-    )
-    totals: dict[tuple[str, str, str], dict[str, object]] = {}
-    for group in account_groups:
-        account = group.get("key")
-        if not isinstance(account, str):
-            continue
-        currency = str(group.get("currency") or "Sans devise")
-        rule = find_account_balance_rule(account, account_balance_rules)
-        nature = rule.nature if rule is not None and rule.nature else "unclassified"
-        normal_side = rule.normal_side if rule is not None else "unknown"
-        status = (
-            "calculated"
-            if normal_side in {"debit", "credit"}
-            else "not_calculable"
-        )
-        key = (nature, currency, normal_side)
-        current = totals.setdefault(
-            key,
-            {
-                "nature": nature,
-                "currency": currency,
-                "normal_side": normal_side,
-                "status": status,
-                "business_balance": 0.0 if status == "calculated" else None,
-                "entry_count": 0,
-                "used_entry_count": 0,
-                "excluded_entry_count": 0,
-                "business_excluded_entry_count": 0,
-                "raw_amount_sum": 0.0,
-                "debit_total": 0.0,
-                "credit_total": 0.0,
-                "account_count": 0,
-                "_accounts": set(),
-            },
-        )
-        entry_count = _numeric_group_value(group, "entry_count")
-        used_entry_count = _numeric_group_value(group, "used_entry_count")
-        excluded_entry_count = _numeric_group_value(group, "excluded_entry_count")
-        technical_balance = _numeric_group_value(group, "balance")
-        current["entry_count"] = _int_metric(current, "entry_count") + int(
-            entry_count
-        )
-        current["used_entry_count"] = _int_metric(current, "used_entry_count") + int(
-            used_entry_count
-        )
-        current["excluded_entry_count"] = _int_metric(
-            current, "excluded_entry_count"
-        ) + int(excluded_entry_count)
-        current["raw_amount_sum"] = round(
-            _float_metric(current, "raw_amount_sum")
-            + _numeric_group_value(group, "raw_amount_sum"),
-            2,
-        )
-        current["debit_total"] = round(
-            _float_metric(current, "debit_total")
-            + _numeric_group_value(group, "debit_total"),
-            2,
-        )
-        current["credit_total"] = round(
-            _float_metric(current, "credit_total")
-            + _numeric_group_value(group, "credit_total"),
-            2,
-        )
-        accounts = current["_accounts"]
-        if isinstance(accounts, set):
-            accounts.add(account)
-            current["account_count"] = len(accounts)
-        if status == "calculated":
-            business_delta = (
-                technical_balance if normal_side == "debit" else -technical_balance
-            )
-            current["business_balance"] = round(
-                _float_metric(current, "business_balance") + business_delta,
-                2,
-            )
-        else:
-            current["business_excluded_entry_count"] = _int_metric(
-                current,
-                "business_excluded_entry_count",
-            ) + int(used_entry_count)
-
-    result = []
-    for item in totals.values():
-        clean_item = {key: value for key, value in item.items() if key != "_accounts"}
-        result.append(clean_item)
-    return sorted(
-        result,
-        key=lambda item: (
-            str(item["status"]) != "calculated",
-            str(item["nature"]),
-            str(item["currency"]),
-        ),
-    )
-
-
-def _numeric_group_value(group: dict[str, object], key: str) -> float:
-    value = group.get(key)
-    return float(value) if isinstance(value, int | float) else 0.0
-
-
-def _int_metric(metrics: dict[str, object], key: str) -> int:
-    value = metrics.get(key)
-    return int(value) if isinstance(value, int | float) else 0
-
-
-def _float_metric(metrics: dict[str, object], key: str) -> float:
-    value = metrics.get(key)
-    return float(value) if isinstance(value, int | float) else 0.0
 
 
 def _dashboard_summary(
@@ -501,12 +393,30 @@ def _account_charts(
     count_groups = _aggregation_groups(aggregations, "account") or amount_groups
     labels: list[str] = []
     amount_values: list[float | int] = []
+    balance_sides: list[str | None] = []
+    normal_sides: list[str | None] = []
+    natures: list[str | None] = []
     for group in amount_groups:
         key = group.get("key")
         amount_sum = group.get("amount_sum")
         if isinstance(key, str) and isinstance(amount_sum, int | float):
             labels.append(key)
-            amount_values.append(amount_sum)
+            business_balance = group.get("business_balance")
+            amount_values.append(
+                business_balance
+                if isinstance(business_balance, int | float)
+                else amount_sum
+            )
+            balance_side = group.get("balance_side")
+            balance_sides.append(
+                balance_side if isinstance(balance_side, str) else None
+            )
+            normal_side = group.get("normal_side")
+            normal_sides.append(
+                normal_side if isinstance(normal_side, str) else None
+            )
+            nature = group.get("nature")
+            natures.append(nature if isinstance(nature, str) else None)
     count_labels: list[str] = []
     count_values: list[float | int] = []
     for group in count_groups:
@@ -532,6 +442,9 @@ def _account_charts(
                     "dimension": "account",
                     "currencies": _group_currencies(amount_groups),
                     "currency": _common_group_currency(amount_groups),
+                    "balance_sides": balance_sides,
+                    "normal_sides": normal_sides,
+                    "natures": natures,
                 },
             ),
         )
@@ -551,17 +464,47 @@ def _account_charts(
     return charts
 
 
+def _account_class_labels_and_business_balances(
+    groups: list[dict[str, object]],
+) -> tuple[list[str], list[float | int]]:
+    currencies = {
+        str(group["currency"]) for group in groups if group.get("currency") is not None
+    }
+    multi_currency = len(currencies) > 1
+    labels: list[str] = []
+    values: list[float | int] = []
+    for group in groups:
+        key = group.get("key")
+        amount_sum = group.get("amount_sum")
+        if not (isinstance(key, str) and isinstance(amount_sum, int | float)):
+            continue
+        business_balance = group.get("business_balance")
+        value = (
+            business_balance
+            if isinstance(business_balance, int | float)
+            else amount_sum
+        )
+        currency = group.get("currency")
+        label = (
+            f"{key} ({currency})"
+            if multi_currency and isinstance(currency, str)
+            else key
+        )
+        labels.append(label)
+        values.append(value)
+    return labels, values
+
+
 def _account_class_charts(
     aggregations: dict[str, object],
 ) -> list[AgentDashboardChartResponse]:
     groups = _aggregation_groups(aggregations, "account_class")
     if not groups:
         return []
-    labels, amount_values = _group_labels_and_values(groups, "amount_sum")
+    labels, amount_values = _account_class_labels_and_business_balances(groups)
     _, count_values = _group_labels_and_values(groups, "entry_count")
     debit_values = _group_metric_values(groups, "debit_total")
     credit_values = _group_metric_values(groups, "credit_total")
-    balance_values = _group_metric_values(groups, "balance")
     currency = _common_group_currency(groups)
     return [
         _chart(
@@ -590,15 +533,15 @@ def _account_class_charts(
         ),
         AgentDashboardChartResponse(
             chart_id="debit_credit_by_account_class",
-            title="Débit, crédit et solde par classe",
+            title="Débit, crédit et solde métier par classe",
             kind="composed",
             metric="amount_sum",
             labels=labels,
-            values=balance_values,
+            values=amount_values,
             series=[
                 {"name": "Débit", "values": debit_values},
                 {"name": "Crédit", "values": credit_values},
-                {"name": "Solde", "values": balance_values},
+                {"name": "Solde", "values": amount_values},
             ],
             metadata={
                 "dimension": "account_class",
@@ -616,15 +559,7 @@ def _field_amount_charts(
     period_groups = _sort_period_groups(_aggregation_groups(aggregations, "period"))
     charts.extend(_period_balance_charts(period_groups))
     field_specs = (
-        ("period", "amount_by_period", "Montants par période", "line", "Montant"),
         ("period", "entries_by_period", "Ecritures par période", "line", "Ecritures"),
-        (
-            "currency",
-            "amount_by_currency",
-            "Montants par devise",
-            "doughnut",
-            "Montant",
-        ),
         (
             "currency",
             "entries_by_currency",
@@ -634,31 +569,10 @@ def _field_amount_charts(
         ),
         (
             "fiscal_year",
-            "amount_by_fiscal_year",
-            "Montants par exercice",
-            "bar",
-            "Montant",
-        ),
-        (
-            "fiscal_year",
             "entries_by_fiscal_year",
             "Écritures par exercice",
             "bar",
             "Écritures",
-        ),
-        (
-            "document_type",
-            "amount_by_document_type",
-            "Montants par type de pièce",
-            "doughnut",
-            "Montant",
-        ),
-        (
-            "tax_code",
-            "amount_by_tax_code",
-            "Montants par code TVA",
-            "doughnut",
-            "Montant",
         ),
         (
             "vendor",
@@ -697,6 +611,15 @@ def _field_amount_charts(
         )
         if not labels:
             continue
+        values = _apply_structural_business_sign(field_name, metric, values)
+        metadata: dict[str, object] = {
+            "dimension": field_name,
+            "currencies": _group_currencies(sorted_groups),
+            "currency": _common_group_currency(sorted_groups),
+        }
+        legend = _structural_business_legend(field_name, metric)
+        if legend:
+            metadata["legend"] = legend
         charts.append(
             _chart(
                 chart_id=chart_id,
@@ -706,14 +629,38 @@ def _field_amount_charts(
                 labels=labels,
                 values=values,
                 series_name=series_name,
-                metadata={
-                    "dimension": field_name,
-                    "currencies": _group_currencies(sorted_groups),
-                    "currency": _common_group_currency(sorted_groups),
-                },
+                metadata=metadata,
             ),
         )
     return charts
+
+
+_STRUCTURAL_CREDIT_NORMAL_FIELDS = {"vendor"}
+
+
+def _apply_structural_business_sign(
+    field_name: str,
+    metric: str,
+    values: list[float | int],
+) -> list[float | int]:
+    """Applique un sens metier fixe pour des dimensions dont la nature ne
+    depend pas du compte touche mais du role lui-meme: un fournisseur est
+    structurellement cote credit (dette), un client structurellement cote
+    debit (creance) - pas besoin du referentiel SYSCOHADA par compte ici.
+    """
+    if metric != "amount_sum" or field_name not in _STRUCTURAL_CREDIT_NORMAL_FIELDS:
+        return values
+    return [round(-float(value), 2) for value in values]
+
+
+def _structural_business_legend(field_name: str, metric: str) -> str | None:
+    if metric != "amount_sum":
+        return None
+    if field_name == "vendor":
+        return "Solde métier : un fournisseur est structurellement créditeur (dette)."
+    if field_name == "customer":
+        return "Solde métier : un client est structurellement débiteur (créance)."
+    return None
 
 
 def _period_balance_charts(
@@ -724,44 +671,179 @@ def _period_balance_charts(
     labels = [str(period) for period in range(1, 13)]
     debit_values = _period_values(period_groups, "debit_total")
     credit_values = _period_values(period_groups, "credit_total")
-    balance_values = _period_values(period_groups, "balance")
-    cumulative_values: list[float | int] = []
-    cumulative_balance = 0.0
-    for value in balance_values:
-        cumulative_balance = round(cumulative_balance + float(value), 2)
-        cumulative_values.append(cumulative_balance)
+    activity_values = [
+        round(float(debit) + float(credit), 2)
+        for debit, credit in zip(debit_values, credit_values, strict=True)
+    ]
     currency = _common_group_currency(period_groups)
     return [
         AgentDashboardChartResponse(
             chart_id="debit_credit_by_period",
-            title="Débit, crédit et solde par période",
+            title="Débit, crédit par période",
             kind="composed",
             metric="amount_sum",
             labels=labels,
-            values=balance_values,
+            values=activity_values,
             series=[
                 {"name": "Débit", "values": debit_values},
                 {"name": "Crédit", "values": credit_values},
-                {"name": "Solde", "values": balance_values},
             ],
             metadata={
                 "dimension": "period",
                 "currency": currency,
                 "currencies": _group_currencies(period_groups),
+                "legend": (
+                    "Solde retiré : une période mélange toutes les classes de "
+                    "comptes, sans sens créditeur/débiteur unique. Voir "
+                    "Ressources cumulées / Emplois cumulés pour la vue nette."
+                ),
+            },
+        ),
+    ]
+
+
+RESOURCES_NATURE_LEGEND = (
+    "Comptes normalement créditeurs : capital et réserves, "
+    "emprunts et dettes, fournisseurs, produits "
+    "(classes 1, 4 et 7 à solde créditeur)."
+)
+USES_NATURE_LEGEND = (
+    "Comptes normalement débiteurs : immobilisations, stocks, "
+    "clients, charges, banques et caisse "
+    "(classes 2, 3, 5 et 6 à solde débiteur)."
+)
+
+_BUSINESS_NATURE_DIMENSION_LABELS = {
+    "fiscal_year": "exercice",
+    "document_type": "type de pièce",
+    "tax_code": "code TVA",
+}
+
+
+def _business_nature_charts(
+    dimension: str,
+    groups: list[dict[str, object]],
+) -> list[AgentDashboardChartResponse]:
+    """Ressources (credit normal) vs emplois (debit normal) pour une
+    dimension qui melange toutes les classes de comptes (periode, exercice,
+    type de piece, code TVA) - le seul cas ou l'on peut business-iser un
+    solde brut sans supposer un sens normal unique pour la dimension.
+    """
+    if dimension == "period":
+        return _period_nature_charts(groups)
+    return _dimension_nature_bar_charts(dimension, groups)
+
+
+def _period_nature_charts(
+    periods: list[dict[str, object]],
+) -> list[AgentDashboardChartResponse]:
+    resources_by_period: dict[int, float] = {}
+    uses_by_period: dict[int, float] = {}
+    for entry in periods:
+        period_number = _period_int(entry.get("key"))
+        if period_number is None:
+            continue
+        resources = entry.get("resources_balance")
+        uses = entry.get("uses_balance")
+        if isinstance(resources, int | float):
+            resources_by_period[period_number] = float(resources)
+        if isinstance(uses, int | float):
+            uses_by_period[period_number] = float(uses)
+    if not resources_by_period and not uses_by_period:
+        return []
+    labels = [str(period) for period in range(1, 13)]
+    cumulative_resources: list[float | int] = []
+    cumulative_uses: list[float | int] = []
+    running_resources = 0.0
+    running_uses = 0.0
+    for period in range(1, 13):
+        running_resources = round(
+            running_resources + resources_by_period.get(period, 0.0),
+            2,
+        )
+        running_uses = round(running_uses + uses_by_period.get(period, 0.0), 2)
+        cumulative_resources.append(running_resources)
+        cumulative_uses.append(running_uses)
+    return [
+        AgentDashboardChartResponse(
+            chart_id="cumulative_resources_by_period",
+            title="Ressources cumulées par période",
+            kind="line",
+            metric="cumulative_resources",
+            labels=labels,
+            values=cumulative_resources,
+            series=[{"name": "Ressources cumulées", "values": cumulative_resources}],
+            metadata={
+                "dimension": "period",
+                "currency": "XOF",
+                "legend": RESOURCES_NATURE_LEGEND,
             },
         ),
         AgentDashboardChartResponse(
-            chart_id="cumulative_balance_by_period",
-            title="Solde cumulé par période",
+            chart_id="cumulative_uses_by_period",
+            title="Emplois cumulés par période",
             kind="line",
-            metric="cumulative_balance",
+            metric="cumulative_uses",
             labels=labels,
-            values=cumulative_values,
-            series=[{"name": "Solde cumulé", "values": cumulative_values}],
+            values=cumulative_uses,
+            series=[{"name": "Emplois cumulés", "values": cumulative_uses}],
             metadata={
                 "dimension": "period",
-                "currency": currency,
-                "currencies": _group_currencies(period_groups),
+                "currency": "XOF",
+                "legend": USES_NATURE_LEGEND,
+            },
+        ),
+    ]
+
+
+def _dimension_nature_bar_charts(
+    dimension: str,
+    groups: list[dict[str, object]],
+) -> list[AgentDashboardChartResponse]:
+    label_noun = _BUSINESS_NATURE_DIMENSION_LABELS.get(dimension)
+    if label_noun is None or not groups:
+        return []
+    labels: list[str] = []
+    resources_values: list[float | int] = []
+    uses_values: list[float | int] = []
+    for group in groups:
+        key = group.get("key")
+        if not isinstance(key, str):
+            continue
+        resources = group.get("resources_balance")
+        uses = group.get("uses_balance")
+        labels.append(key)
+        resources_values.append(resources if isinstance(resources, int | float) else 0)
+        uses_values.append(uses if isinstance(uses, int | float) else 0)
+    if not labels:
+        return []
+    return [
+        _chart(
+            chart_id=f"resources_by_{dimension}",
+            title=f"Ressources par {label_noun}",
+            kind="bar",
+            metric="resources_balance",
+            labels=labels,
+            values=resources_values,
+            series_name="Ressources",
+            metadata={
+                "dimension": dimension,
+                "currency": "XOF",
+                "legend": RESOURCES_NATURE_LEGEND,
+            },
+        ),
+        _chart(
+            chart_id=f"uses_by_{dimension}",
+            title=f"Emplois par {label_noun}",
+            kind="bar",
+            metric="uses_balance",
+            labels=labels,
+            values=uses_values,
+            series_name="Emplois",
+            metadata={
+                "dimension": dimension,
+                "currency": "XOF",
+                "legend": USES_NATURE_LEGEND,
             },
         ),
     ]
@@ -788,40 +870,6 @@ def _quality_charts(quality: dict[str, object]) -> list[AgentDashboardChartRespo
                 values=values,
                 series_name="Anomalies",
                 metadata={"dimension": "severity"},
-            ),
-        )
-
-    field_counts: dict[str, float | int] = {}
-    for issue in _list_value(quality.get("issues")):
-        affected_count = issue.get("affected_count")
-        if not isinstance(affected_count, int | float):
-            continue
-        field_label = (
-            issue.get("canonical_field")
-            or issue.get("source_column")
-            or issue.get("issue_type")
-            or "Sans champ"
-        )
-        field_counts[str(field_label)] = field_counts.get(str(field_label), 0) + (
-            affected_count
-        )
-
-    sorted_fields = sorted(
-        field_counts.items(),
-        key=lambda item: item[1],
-        reverse=True,
-    )
-    if sorted_fields:
-        charts.append(
-            _chart(
-                chart_id="data_quality_by_field",
-                title="Qualité des données par champ",
-                kind="horizontal_bar",
-                metric="issue_count",
-                labels=[field for field, _ in sorted_fields],
-                values=[count for _, count in sorted_fields],
-                series_name="Lignes concernées",
-                metadata={"dimension": "quality_field"},
             ),
         )
 
@@ -867,6 +915,11 @@ def _tax_candidate_charts(
                 "dimension": "tax_candidate_category",
                 "decision_status": tax_candidates.get("decision_status"),
                 "currencies": currencies,
+                "legend": (
+                    "Les candidats RAS sont des charges (classe 6), "
+                    "structurellement débitrices : le solde technique "
+                    "débit-crédit est déjà le solde métier attendu ici."
+                ),
             },
         ),
     ]

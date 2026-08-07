@@ -540,6 +540,7 @@ def _tool_user_label(tool_name: str) -> str:
         "classify_ledger_schema": "Identification du sens des colonnes",
         "analyze_ledger": "Analyse du Grand Livre",
         "aggregate_ledger": "Agrégation du Grand Livre",
+        "aggregate_business_nature": "Ventilation ressources/emplois",
         "query_ledger_entries": "Recherche d'écritures",
         "calculate_ledger_metrics": "Calcul de métriques",
         "detect_data_quality_issues": "Contrôle qualité des données",
@@ -565,6 +566,9 @@ def _tool_result_summary(tool_result: ToolExecutionResult) -> str:
     if tool_result.tool_name == "aggregate_ledger":
         aggregation_count = len(tool_result.output.get("aggregations", ()))
         return f"{aggregation_count} regroupement(s) du Grand Livre préparé(s)."
+    if tool_result.tool_name == "aggregate_business_nature":
+        group_count = len(tool_result.output.get("groups", ()))
+        return f"Ressources/emplois calculés sur {group_count} groupe(s)."
     if tool_result.tool_name == "query_ledger_entries":
         total_matches = tool_result.output.get("total_matches")
         entries = tool_result.output.get("entries", ())

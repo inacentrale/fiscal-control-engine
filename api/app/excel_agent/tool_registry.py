@@ -201,6 +201,50 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                 ),
             ),
             AgentToolDefinition(
+                name="aggregate_business_nature",
+                description=(
+                    "Ventile le solde de chaque valeur d'une dimension "
+                    "(periode, exercice, type de piece ou code TVA) entre "
+                    "ressources (comptes normalement crediteurs: capital, "
+                    "dettes, produits) et emplois (comptes normalement "
+                    "debiteurs: charges, actif, tresorerie), selon le "
+                    "referentiel SYSCOHADA. Les comptes a fonctionnement "
+                    "variable restent a part, non calculables ici."
+                ),
+                input_schema={
+                    "type": "object",
+                    "required": ["file_path", "sheet_name", "dimension"],
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "sheet_name": {"type": "string"},
+                        "dimension": {
+                            "type": "string",
+                            "enum": [
+                                "period",
+                                "fiscal_year",
+                                "document_type",
+                                "tax_code",
+                            ],
+                        },
+                    },
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "sheet_name": {"type": "string"},
+                        "dimension": {"type": "string"},
+                        "sign_convention": {"type": ["string", "null"]},
+                        "groups": {"type": "array"},
+                    },
+                },
+                safeguards=(
+                    "allowed_file_only",
+                    "metadata_only",
+                    "ledger_aggregation",
+                    "never_return_cell_values",
+                ),
+            ),
+            AgentToolDefinition(
                 name="query_ledger_entries",
                 description=(
                     "Affiche, liste ou recherche des ecritures comptables du "
@@ -916,6 +960,7 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                         "details": {"type": "array"},
                         "reference_versions": {"type": "array"},
                         "decision_status": {"type": "string"},
+                        "audit_id": {"type": "string"},
                     },
                 },
                 safeguards=(

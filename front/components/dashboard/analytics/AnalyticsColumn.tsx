@@ -133,6 +133,7 @@ export default function AnalyticsColumn() {
 
       {activeMode === "withholding" ? (
         <WithholdingAnalyticsPanel
+          sessionId={activeSessionId ?? null}
           state={toWithholdingState(
             rasCandidatesQuery.isLoading,
             rasCandidatesQuery.isError,
@@ -163,6 +164,7 @@ export default function AnalyticsColumn() {
           primaryChart={primaryChart}
           result={rasCandidatesQuery.data ?? null}
           secondaryCharts={secondaryCharts}
+          sessionId={activeSessionId ?? null}
         />
       )}
     </div>
@@ -179,6 +181,7 @@ function ExpandedAnalyticsModalBridge({
   primaryChart,
   result,
   secondaryCharts,
+  sessionId,
 }: {
   activeView: AnalyticsView;
   activeMode: AnalyticsMode;
@@ -189,6 +192,7 @@ function ExpandedAnalyticsModalBridge({
   primaryChart: AgentDashboardChart | null;
   result: RasCandidateDetectionResult | null;
   secondaryCharts: AgentDashboardChart[];
+  sessionId: string | null;
 }) {
   const safeResult = result ?? emptyRasResult(dashboard.sheet_name);
   const signalItems = topEntries(safeResult.signalCounts, 4);
@@ -218,6 +222,7 @@ function ExpandedAnalyticsModalBridge({
       result={safeResult}
       secondaryCharts={secondaryCharts}
       signalItems={signalItems}
+      sessionId={sessionId}
     />
   );
 }

@@ -29,6 +29,7 @@ from app.ledger_analysis.analysis_service import (
     LedgerAnalysisReport,
     LedgerAnalysisService,
     LedgerDataQualityReport,
+    LedgerDimensionNatureReport,
     LedgerFieldAggregation,
     LedgerMetricsReport,
     LedgerQueryReport,
@@ -177,6 +178,7 @@ ToolResult = (
     | LedgerSchemaClassificationReport
     | LedgerAnalysisReport
     | LedgerAggregationReport
+    | LedgerDimensionNatureReport
     | LedgerQueryReport
     | LedgerMetricsReport
     | LedgerDataQualityReport
@@ -344,6 +346,12 @@ class ExcelToolExecutor:
                     ),
                     filters=filters,
                 )
+            elif validated_call.name == "aggregate_business_nature":
+                result = self._ledger_analysis_service.aggregate_business_nature(
+                    Path(str(validated_call.arguments["file_path"])),
+                    sheet_name=str(validated_call.arguments["sheet_name"]),
+                    dimension=str(validated_call.arguments["dimension"]),
+                )
             elif validated_call.name == "query_ledger_entries":
                 filters = _query_filters(validated_call.arguments.get("filters"))
                 if filters is None:
@@ -510,6 +518,7 @@ class ExcelToolExecutor:
                         "ras_audit_report_unavailable",
                         str(exc),
                     )
+                persisted_audit_id = audit_id
             elif validated_call.name == "query_tax_rag":
                 if self._tax_rag_query_service is None:
                     return _failed(
@@ -1645,6 +1654,10 @@ def _serialize_result(
                             "debit_total": group.debit_total,
                             "credit_total": group.credit_total,
                             "balance": group.balance,
+                            "balance_side": group.balance_side,
+                            "normal_side": group.normal_side,
+                            "nature": group.nature,
+                            "business_balance": group.business_balance,
                         }
                         for group in aggregation.groups
                     ],
@@ -1653,6 +1666,24 @@ def _serialize_result(
             },
             "sign_convention": result.sign_convention,
             "filters": result.filters,
+        }
+    if isinstance(result, LedgerDimensionNatureReport):
+        return {
+            "sheet_name": result.sheet_name,
+            "dimension": result.dimension,
+            "sign_convention": result.sign_convention,
+            "groups": [
+                {
+                    "key": group.key,
+                    "resources_balance": group.resources_balance,
+                    "resources_entry_count": group.resources_entry_count,
+                    "uses_balance": group.uses_balance,
+                    "uses_entry_count": group.uses_entry_count,
+                    "unclassified_balance": group.unclassified_balance,
+                    "unclassified_entry_count": group.unclassified_entry_count,
+                }
+                for group in result.groups
+            ],
         }
     if isinstance(result, LedgerQueryReport):
         return {
@@ -2339,6 +2370,10 @@ def _serialize_field_aggregation(
                 "debit_total": group.debit_total,
                 "credit_total": group.credit_total,
                 "balance": group.balance,
+                "balance_side": group.balance_side,
+                "normal_side": group.normal_side,
+                "nature": group.nature,
+                "business_balance": group.business_balance,
             }
             for group in aggregation.groups
         ],

@@ -257,6 +257,111 @@ def test_service_orders_period_aggregation_chronologically(
     assert [group.key for group in report.aggregations[0].groups] == ["1", "2", "10"]
 
 
+def test_service_period_aggregation_scopes_to_reporting_currency(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "multi_currency_period_ledger.xlsx"
+    dataframe = pd.DataFrame(
+        {
+            "Compte": ["61365000", "61365000", "61365000"],
+            "Texte": ["XOF", "Sans devise", "EUR"],
+            "Montant": [100.0, 50.0, 40.0],
+            "Devise": ["XOF", None, "EUR"],
+            "Cle de comptabilisation": ["40", "40", "40"],
+            "Periode": [1, 1, 1],
+        },
+    )
+    with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
+        dataframe.to_excel(writer, sheet_name="Grand Livre", index=False)
+    service = LedgerAnalysisService(
+        excel_tools=ExcelAgentTools(allowed_root=tmp_path),
+        posting_key_rules=_posting_key_rules(),
+    )
+
+    report = service.aggregate(
+        workbook_path,
+        sheet_name="Grand Livre",
+        group_by=("period",),
+    )
+
+    groups = report.aggregations[0].groups
+    assert len(groups) == 1
+    assert groups[0].key == "1"
+    assert groups[0].currency == "XOF"
+    assert groups[0].entry_count == 2
+    assert groups[0].balance == 150.0
+
+
+def test_service_aggregates_period_business_nature(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "period_nature_ledger.xlsx"
+    dataframe = pd.DataFrame(
+        {
+            "Compte": ["701000", "345520", "701000", "421000"],
+            "Texte": ["Vente P1", "Stock P1", "Vente P2", "Salaire P1"],
+            "Montant": [300.0, 100.0, 200.0, 50.0],
+            "Cle de comptabilisation": ["50", "40", "50", "40"],
+            "Periode": [1, 1, 2, 1],
+        },
+    )
+    with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
+        dataframe.to_excel(writer, sheet_name="Grand Livre", index=False)
+    service = LedgerAnalysisService(
+        excel_tools=ExcelAgentTools(allowed_root=tmp_path),
+        posting_key_rules=_posting_key_rules(),
+        account_balance_rules=_account_balance_rules(),
+    )
+
+    report = service.aggregate_business_nature(
+        workbook_path,
+        sheet_name="Grand Livre",
+        dimension="period",
+    )
+
+    assert report.dimension == "period"
+    periods = {entry.key: entry for entry in report.groups}
+    assert periods["1"].resources_balance == 300.0
+    assert periods["1"].resources_entry_count == 1
+    assert periods["1"].uses_balance == 100.0
+    assert periods["1"].uses_entry_count == 1
+    assert periods["1"].unclassified_balance == 50.0
+    assert periods["1"].unclassified_entry_count == 1
+    assert periods["2"].resources_balance == 200.0
+    assert periods["2"].uses_balance == 0.0
+
+
+def test_service_aggregates_business_nature_by_document_type(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "document_type_nature_ledger.xlsx"
+    dataframe = pd.DataFrame(
+        {
+            "Compte": ["701000", "345520"],
+            "Texte": ["Vente", "Stock"],
+            "Montant": [300.0, 100.0],
+            "Cle de comptabilisation": ["50", "40"],
+            "Type de piece": ["FA", "FA"],
+        },
+    )
+    with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
+        dataframe.to_excel(writer, sheet_name="Grand Livre", index=False)
+    service = LedgerAnalysisService(
+        excel_tools=ExcelAgentTools(allowed_root=tmp_path),
+        posting_key_rules=_posting_key_rules(),
+        account_balance_rules=_account_balance_rules(),
+    )
+
+    report = service.aggregate_business_nature(
+        workbook_path,
+        sheet_name="Grand Livre",
+        dimension="document_type",
+    )
+
+    assert report.dimension == "document_type"
+    assert len(report.groups) == 1
+    group = report.groups[0]
+    assert group.key == "FA"
+    assert group.resources_balance == 300.0
+    assert group.uses_balance == 100.0
+
+
 def test_service_aggregation_exposes_debit_credit_and_excluded_rows(
     tmp_path: Path,
 ) -> None:
@@ -420,6 +525,185 @@ def test_service_uses_account_class_for_a_subaccount(tmp_path: Path) -> None:
     assert report.balance_interpretation["matched_prefix"] == "3"
 
 
+def test_service_ranks_top_accounts_by_business_balance_when_rules_available(
+    tmp_path: Path,
+) -> None:
+    workbook_path = _write_top_accounts_ledger(tmp_path)
+    service = LedgerAnalysisService(
+        excel_tools=ExcelAgentTools(allowed_root=tmp_path),
+        posting_key_rules=_posting_key_rules(),
+        account_balance_rules=_account_balance_rules(),
+    )
+
+    report = service.calculate_metrics(
+        workbook_path,
+        sheet_name="Grand Livre",
+        filters={},
+        metrics=("count",),
+        top_by="account",
+        top_limit=5,
+    )
+
+    assert report.top is not None
+    groups = {group.key: group for group in report.top.groups}
+    assert [group.key for group in report.top.groups] == ["401000", "345520"]
+    assert groups["401000"].balance == -500.0
+    assert groups["401000"].balance_side == "credit"
+    assert groups["401000"].normal_side == "credit"
+    assert groups["401000"].nature == "suppliers"
+    assert groups["401000"].business_balance == 500.0
+    assert groups["345520"].balance == 100.0
+    assert groups["345520"].balance_side == "debit"
+    assert groups["345520"].normal_side == "debit"
+    assert groups["345520"].business_balance == 100.0
+
+
+def test_service_top_accounts_keeps_technical_order_without_balance_rules(
+    tmp_path: Path,
+) -> None:
+    workbook_path = _write_top_accounts_ledger(tmp_path)
+    service = LedgerAnalysisService(
+        excel_tools=ExcelAgentTools(allowed_root=tmp_path),
+        posting_key_rules=_posting_key_rules(),
+    )
+
+    report = service.calculate_metrics(
+        workbook_path,
+        sheet_name="Grand Livre",
+        filters={},
+        metrics=("count",),
+        top_by="account",
+        top_limit=5,
+    )
+
+    assert report.top is not None
+    assert [group.key for group in report.top.groups] == ["345520", "401000"]
+    assert report.top.groups[0].normal_side is None
+    assert report.top.groups[0].business_balance == 100.0
+
+
+def test_service_aggregates_account_class_with_business_balance(tmp_path: Path) -> None:
+    workbook_path = _write_account_class_ledger(tmp_path)
+    service = LedgerAnalysisService(
+        excel_tools=ExcelAgentTools(allowed_root=tmp_path),
+        posting_key_rules=_posting_key_rules(),
+        account_balance_rules=_account_balance_rules(),
+    )
+
+    report = service.aggregate(
+        workbook_path,
+        sheet_name="Grand Livre",
+        group_by=("account_class",),
+        limit=10,
+    )
+
+    groups = {group.key: group for group in report.aggregations[0].groups}
+    assert groups["Classe 3"].balance == 100.0
+    assert groups["Classe 3"].balance_side == "debit"
+    assert groups["Classe 3"].normal_side == "debit"
+    assert groups["Classe 3"].business_balance == 100.0
+    assert groups["Classe 7"].balance == -300.0
+    assert groups["Classe 7"].balance_side == "credit"
+    assert groups["Classe 7"].normal_side == "credit"
+    assert groups["Classe 7"].nature == "revenue"
+    assert groups["Classe 7"].business_balance == 300.0
+
+
+def test_service_account_class_keeps_technical_balance_without_rules(
+    tmp_path: Path,
+) -> None:
+    workbook_path = _write_account_class_ledger(tmp_path)
+    service = LedgerAnalysisService(
+        excel_tools=ExcelAgentTools(allowed_root=tmp_path),
+        posting_key_rules=_posting_key_rules(),
+    )
+
+    report = service.aggregate(
+        workbook_path,
+        sheet_name="Grand Livre",
+        group_by=("account_class",),
+        limit=10,
+    )
+
+    groups = {group.key: group for group in report.aggregations[0].groups}
+    assert groups["Classe 7"].normal_side is None
+    assert groups["Classe 7"].business_balance == -300.0
+
+
+def test_service_account_class_view_scopes_to_reporting_currency(
+    tmp_path: Path,
+) -> None:
+    workbook_path = _write_multi_currency_account_class_ledger(tmp_path)
+    service = LedgerAnalysisService(
+        excel_tools=ExcelAgentTools(allowed_root=tmp_path),
+        posting_key_rules=_posting_key_rules(),
+    )
+
+    report = service.aggregate(
+        workbook_path,
+        sheet_name="Grand Livre",
+        group_by=("account_class",),
+        limit=10,
+    )
+
+    groups = report.aggregations[0].groups
+    assert len(groups) == 1
+    class_3 = groups[0]
+    assert class_3.key == "Classe 3"
+    assert class_3.currency == "XOF"
+    assert class_3.entry_count == 2
+    assert class_3.balance == 150.0
+
+
+def _write_multi_currency_account_class_ledger(directory: Path) -> Path:
+    workbook_path = directory / "multi_currency_account_class_ledger.xlsx"
+    dataframe = pd.DataFrame(
+        {
+            "Compte": ["345520", "345521", "351000"],
+            "Texte": ["Stock XOF", "Stock sans devise", "Stock EUR"],
+            "Montant": [100.0, 50.0, 40.0],
+            "Devise": ["XOF", None, "EUR"],
+            "Clé de comptabilisation": ["40", "40", "40"],
+            "Exercice comptable": [2024, 2024, 2024],
+        },
+    )
+    with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
+        dataframe.to_excel(writer, sheet_name="Grand Livre", index=False)
+    return workbook_path
+
+
+def _write_account_class_ledger(directory: Path) -> Path:
+    workbook_path = directory / "account_class_ledger.xlsx"
+    dataframe = pd.DataFrame(
+        {
+            "Compte": ["345520", "701000"],
+            "Texte": ["Stock", "Vente"],
+            "Montant": [100.0, 300.0],
+            "Clé de comptabilisation": ["40", "50"],
+            "Exercice comptable": [2024, 2024],
+        },
+    )
+    with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
+        dataframe.to_excel(writer, sheet_name="Grand Livre", index=False)
+    return workbook_path
+
+
+def _write_top_accounts_ledger(directory: Path) -> Path:
+    workbook_path = directory / "top_accounts_ledger.xlsx"
+    dataframe = pd.DataFrame(
+        {
+            "Compte": ["401000", "345520"],
+            "Texte": ["Fournisseur", "Stock"],
+            "Montant": [500.0, 100.0],
+            "Clé de comptabilisation": ["50", "40"],
+            "Exercice comptable": [2024, 2024],
+        },
+    )
+    with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
+        dataframe.to_excel(writer, sheet_name="Grand Livre", index=False)
+    return workbook_path
+
+
 def _write_posting_key_ledger(
     directory: Path,
     posting_keys: list[str],
@@ -455,4 +739,5 @@ def _account_balance_rules() -> tuple[AccountBalanceRule, ...]:
         AccountBalanceRule("409", "debit", "supplier_receivables", "", ""),
         AccountBalanceRule("41", "debit", "customers", "", ""),
         AccountBalanceRule("419", "credit", "customer_payables", "", ""),
+        AccountBalanceRule("7", "credit", "revenue", "", ""),
     )

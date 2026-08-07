@@ -19,6 +19,7 @@ from app.agent_file.domain import (
     AgentFileUploadResult,
 )
 from app.config import Settings
+from app.database import Base, create_database_engine, create_session_factory
 from app.excel_agent.domain import ToolExecutionResult
 from app.excel_agent.excel_tools import ExcelAgentTools
 from app.excel_agent.tests.fixtures import write_minified_grand_livre
@@ -26,6 +27,11 @@ from app.excel_agent.tool_executor import ExcelToolExecutor
 from app.excel_agent.tool_registry import create_excel_tool_registry
 from app.llm.domain import ModelRequest, ModelResponse, ToolCall
 from app.main import create_app
+from app.ras_audit.persistence import (
+    RasAuditCaseSnapshot,
+    RasAuditSnapshot,
+    SqlAlchemyRasAuditRepository,
+)
 from app.routers.agent import (
     AgentEndpointError,
     _effective_allowed_tools,
@@ -492,25 +498,227 @@ def test_agent_session_context_returns_rich_dashboard_charts(tmp_path: Path) -> 
     assert {
         "top_accounts_by_amount",
         "entries_by_account",
-        "amount_by_period",
+        "cumulative_resources_by_period",
+        "cumulative_uses_by_period",
         "entries_by_period",
-        "amount_by_document_type",
-        "amount_by_tax_code",
+        "resources_by_document_type",
+        "uses_by_document_type",
+        "resources_by_tax_code",
+        "uses_by_tax_code",
         "top_vendors_by_amount",
         "top_customers_by_amount",
         "data_quality_by_severity",
         "tax_candidates_by_amount",
     }.issubset(chart_ids)
     period_chart = next(
-        chart for chart in charts if chart["chart_id"] == "amount_by_period"
+        chart
+        for chart in charts
+        if chart["chart_id"] == "cumulative_resources_by_period"
     )
     assert period_chart["kind"] == "line"
     assert period_chart["labels"] == [str(period) for period in range(1, 13)]
-    assert period_chart["series"][0]["name"] == "Montant"
+    assert period_chart["series"][0]["name"] == "Ressources cumulées"
     tax_chart = next(
         chart for chart in charts if chart["chart_id"] == "tax_candidates_by_amount"
     )
     assert tax_chart["metadata"]["decision_status"] == "review_required"
+
+
+def test_ras_audit_report_can_be_downloaded_as_csv_and_json(tmp_path: Path) -> None:
+    app = create_app()
+    database_url = f"sqlite:///{tmp_path / 'ras_audit.db'}"
+    _seed_ras_audit(database_url, audit_id="audit-download-1")
+
+    async def override_settings() -> Settings:
+        return Settings(database_url=database_url)
+
+    app.dependency_overrides[get_api_settings] = override_settings
+
+    csv_response = _get(app, "/api/agent/ras-audits/audit-download-1/report")
+
+    assert csv_response.status_code == 200
+    assert csv_response.headers["content-type"].startswith("text/csv")
+    assert (
+        csv_response.headers["content-disposition"]
+        == 'attachment; filename="rapport-audit-ras-audit-download-1.csv"'
+    )
+    assert "entry-1" in csv_response.text
+
+    json_response = _get(
+        app,
+        "/api/agent/ras-audits/audit-download-1/report?format=json",
+    )
+
+    assert json_response.status_code == 200
+    assert json_response.headers["content-type"].startswith("application/json")
+    payload = json.loads(json_response.text)
+    assert payload["case_count"] == 1
+    assert payload["details"][0]["candidate_id"] == "entry-1"
+
+
+def test_ras_audit_report_download_returns_404_for_unknown_audit(
+    tmp_path: Path,
+) -> None:
+    app = create_app()
+    database_url = f"sqlite:///{tmp_path / 'ras_audit.db'}"
+    _seed_ras_audit(database_url, audit_id="audit-download-1")
+
+    async def override_settings() -> Settings:
+        return Settings(database_url=database_url)
+
+    app.dependency_overrides[get_api_settings] = override_settings
+
+    response = _get(app, "/api/agent/ras-audits/unknown-audit/report")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "ras_audit_report_not_found"
+
+
+def test_run_and_download_ras_audit_report_requires_active_file(
+    tmp_path: Path,
+) -> None:
+    app = create_app()
+    database_url = f"sqlite:///{tmp_path / 'ras_audit.db'}"
+
+    async def override_settings() -> Settings:
+        return Settings(
+            database_url=database_url,
+            ras_fact_context_signing_key="k" * 32,
+        )
+
+    app.dependency_overrides[get_api_settings] = override_settings
+
+    response = _post(
+        app,
+        "/api/agent/sessions/unknown-session/ras-audit-report",
+        json={},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "agent_no_active_file"
+
+
+def test_run_and_download_ras_audit_report_requires_fact_context_signing_key(
+    tmp_path: Path,
+) -> None:
+    app = create_app()
+    source_path = write_minified_grand_livre(tmp_path / "sources")
+    database_url = f"sqlite:///{tmp_path / 'ras_audit.db'}"
+
+    async def override_settings() -> Settings:
+        return Settings(
+            _env_file=None,
+            agent_file_storage_root_path=str(tmp_path / "sessions"),
+            excel_agent_allowed_root_path=str(source_path.parent),
+            agent_file_max_upload_bytes=1_000_000,
+            database_url=database_url,
+            ras_fact_context_signing_key=None,
+        )
+
+    app.dependency_overrides[get_api_settings] = override_settings
+
+    upload_response = _post_files(
+        app,
+        "/api/agent/files",
+        files={
+            "file": (
+                source_path.name,
+                source_path.read_bytes(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+    session_id = upload_response.json()["session_id"]
+
+    response = _post(
+        app,
+        f"/api/agent/sessions/{session_id}/ras-audit-report",
+        json={},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "ras_fact_context_unavailable"
+
+
+def test_run_and_download_ras_audit_report_succeeds_end_to_end(
+    tmp_path: Path,
+) -> None:
+    app = create_app()
+    source_path = _reference_excel_path()
+
+    async def override_settings() -> Settings:
+        return Settings(
+            agent_file_storage_root_path=str(tmp_path / "sessions"),
+            excel_agent_allowed_root_path=str(source_path.parent),
+            agent_file_max_upload_bytes=5_000_000,
+            database_url=f"sqlite:///{tmp_path / 'ras_audit.db'}",
+        )
+
+    app.dependency_overrides[get_api_settings] = override_settings
+
+    upload_response = _post_files(
+        app,
+        "/api/agent/files",
+        files={
+            "file": (
+                source_path.name,
+                source_path.read_bytes(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+    session_id = upload_response.json()["session_id"]
+
+    response = _post(
+        app,
+        f"/api/agent/sessions/{session_id}/ras-audit-report",
+        json={},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"].startswith(
+        'attachment; filename="rapport-audit-ras-'
+    )
+    assert "candidate_id" in response.text
+
+
+def _seed_ras_audit(database_url: str, *, audit_id: str) -> None:
+    engine = create_database_engine(database_url)
+    Base.metadata.create_all(engine)
+    repository = SqlAlchemyRasAuditRepository(create_session_factory(engine))
+    repository.save(
+        RasAuditSnapshot(
+            audit_id=audit_id,
+            source_sha256="a" * 64,
+            status="completed_provisional",
+            reference_versions=("legal-v1",),
+            fact_context={"message_sha256": "b" * 64},
+            cases=(
+                RasAuditCaseSnapshot(
+                    candidate_id="entry-1",
+                    status="provisional_reconciled",
+                    certainty="supported_provisional",
+                    payload={
+                        "candidate_id": "entry-1",
+                        "status": "provisional_reconciled",
+                        "certainty": "supported_provisional",
+                        "rule_id": "resident-standard",
+                        "rule_version": "legal-v1",
+                        "expected_amount": "5000",
+                        "recorded_amount": "5000",
+                        "difference": "0",
+                        "currency": "XOF",
+                        "missing_facts": [],
+                        "issues": [],
+                        "legal_source_locators": ["CGI:article"],
+                        "basis_is_complete": True,
+                    },
+                ),
+            ),
+            created_at=datetime(2026, 8, 4, tzinfo=UTC),
+        ),
+    )
 
 
 def test_agent_upload_can_attach_file_to_existing_session(tmp_path: Path) -> None:

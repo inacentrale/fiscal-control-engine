@@ -35,9 +35,7 @@ import {
 
 import AnalyticsReveal from "./AnalyticsReveal";
 import AnalyticsChartCard from "./AnalyticsChartCard";
-import AnalyticsKpiGrid, {
-  AnalyticsBusinessBalanceGrid,
-} from "./AnalyticsKpiGrid";
+import AnalyticsKpiGrid from "./AnalyticsKpiGrid";
 import AnalyticsQualityDetails from "./AnalyticsQualityDetails";
 import AnalyticsStatGrid, { type AnalyticsStatItem } from "./AnalyticsStatGrid";
 import AnalyticsViewTabs from "./AnalyticsViewTabs";
@@ -47,6 +45,7 @@ import {
   formatAmount,
   formatCompactNumber,
 } from "./analyticsUtils";
+import RasAuditReportButton from "./RasAuditReportButton";
 import WithholdingDonutSummary from "./WithholdingDonutSummary";
 import WithholdingTrendCard from "./WithholdingTrendCard";
 import AnalyticsModeSwitcher, { type AnalyticsMode } from "./AnalyticsModeSwitcher";
@@ -59,29 +58,52 @@ type WithholdingQueryState =
   | { status: "ready"; result: RasCandidateDetectionResult };
 
 export default function WithholdingAnalyticsPanel({
+  sessionId = null,
   state,
 }: {
+  sessionId?: string | null;
   state: WithholdingQueryState;
 }) {
-  if (state.status === "loading") return <WithholdingSkeleton />;
-  if (state.status === "error") {
-    return (
-      <WithholdingState
-        title="Contrôle RAS indisponible"
-        text={state.message}
-      />
-    );
-  }
-  if (state.status === "empty") {
-    return (
-      <WithholdingState
-        title="Aucun signal RAS"
-        text="Le fichier actif ne retourne pas encore de synthèse RAS exploitable."
-      />
-    );
-  }
+  return (
+    <>
+      <header className="space-y-1">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-[16px] font-semibold">Contrôle RAS</h2>
+          {state.status === "ready" && (
+            <span className="rounded-full bg-[#fff4ed] px-2.5 py-1 text-[11px] font-semibold text-[#c8563f]">
+              Revue
+            </span>
+          )}
+        </div>
+        {state.status === "ready" && (
+          <p className="truncate text-[12px] font-medium text-[#7d8d97]">
+            {state.result.sheetName} · aucune décision fiscale automatique
+          </p>
+        )}
+        <div className="pt-1">
+          <RasAuditReportButton sessionId={sessionId} />
+        </div>
+      </header>
 
-  const result = state.result;
+      {state.status === "loading" && <WithholdingSkeleton />}
+      {state.status === "error" && (
+        <WithholdingState
+          title="Contrôle RAS indisponible"
+          text={state.message}
+        />
+      )}
+      {state.status === "empty" && (
+        <WithholdingState
+          title="Aucun signal RAS"
+          text="Le fichier actif ne retourne pas encore de synthèse RAS exploitable."
+        />
+      )}
+      {state.status === "ready" && <WithholdingReadyBody result={state.result} />}
+    </>
+  );
+}
+
+function WithholdingReadyBody({ result }: { result: RasCandidateDetectionResult }) {
   const signalItems = topEntries(result.signalCounts, 4);
   const missingFactItems = topEntries(result.missingFactCounts, 3);
   const periods = (result.rasReview?.periods ?? []).filter(
@@ -95,18 +117,6 @@ export default function WithholdingAnalyticsPanel({
 
   return (
     <>
-      <header className="space-y-1">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-[16px] font-semibold">Contrôle RAS</h2>
-          <span className="rounded-full bg-[#fff4ed] px-2.5 py-1 text-[11px] font-semibold text-[#c8563f]">
-            Revue
-          </span>
-        </div>
-        <p className="truncate text-[12px] font-medium text-[#7d8d97]">
-          {result.sheetName} · aucune décision fiscale automatique
-        </p>
-      </header>
-
       <AnalyticsReveal>
         <AnalyticsStatGrid
           items={rasCompactStats({ amount, candidateRate, result })}
@@ -143,7 +153,6 @@ export default function WithholdingAnalyticsPanel({
           />
         </AnalyticsReveal>
       )}
-
     </>
   );
 }
@@ -230,6 +239,7 @@ export function WithholdingExpandedModal({
   result,
   secondaryCharts,
   signalItems,
+  sessionId = null,
 }: {
   activeMode: AnalyticsMode;
   activeView: AnalyticsView;
@@ -245,6 +255,7 @@ export function WithholdingExpandedModal({
   result: RasCandidateDetectionResult;
   secondaryCharts: AgentDashboardChart[];
   signalItems: Array<{ label: string; value: number }>;
+  sessionId?: string | null;
 }) {
   const [selectedMissingFact, setSelectedMissingFact] = useState<string | null>(
     null
@@ -272,6 +283,9 @@ export function WithholdingExpandedModal({
                     onChange={onModeChange}
                   />
                 </span>
+                {activeMode === "withholding" && (
+                  <RasAuditReportButton sessionId={sessionId} />
+                )}
               </span>
             }
             titleClass="!max-w-none !overflow-visible !text-clip !whitespace-normal text-[#102734]"
@@ -676,7 +690,8 @@ function ExpandedLedgerView({
     findChart(dashboard, "amount_by_account_class"),
     findChart(dashboard, "debit_credit_by_account_class"),
     findChart(dashboard, "debit_credit_by_period"),
-    findChart(dashboard, "cumulative_balance_by_period"),
+    findChart(dashboard, "cumulative_resources_by_period"),
+    findChart(dashboard, "cumulative_uses_by_period"),
   ].filter((chart): chart is AgentDashboardChart => Boolean(chart));
   const orderedCharts = [primaryChart, ...priorityCharts].filter(
     (chart): chart is AgentDashboardChart => Boolean(chart)
@@ -704,9 +719,6 @@ function ExpandedLedgerView({
             key={chart.chart_id}
           />
         ))}
-      </div>
-      <div className="mt-4">
-        <AnalyticsBusinessBalanceGrid dashboard={dashboard} />
       </div>
     </>
   );

@@ -11,6 +11,7 @@ def test_excel_tool_registry_exposes_initial_tools() -> None:
         "classify_ledger_schema",
         "analyze_ledger",
         "aggregate_ledger",
+        "aggregate_business_nature",
         "query_ledger_entries",
         "calculate_ledger_metrics",
         "detect_data_quality_issues",

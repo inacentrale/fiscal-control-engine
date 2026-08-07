@@ -382,9 +382,62 @@ def test_executor_aggregates_anonymized_ledger_without_cell_values() -> None:
     assert tax_group["amount_sum"] == 87676740.0
     assert tax_group["balance"] == 87676740.0
     assert tax_group["currency"] == "XOF"
+
+
+def test_executor_aggregates_business_nature_by_period() -> None:
+    docs_root = _docs_root()
+    workbook_path = docs_root / "GL_anonymise_2500.xlsx"
+    executor = _create_executor(docs_root)
+
+    result = executor.execute(
+        ToolCall(
+            name="aggregate_business_nature",
+            arguments={
+                "file_path": str(workbook_path),
+                "sheet_name": "Sheet1",
+                "dimension": "period",
+            },
+        ),
+    )
+
+    assert result.ok is True
+    assert result.output["sheet_name"] == "Sheet1"
+    assert result.output["dimension"] == "period"
+    groups = result.output["groups"]
+    assert len(groups) > 0
+    sample = groups[0]
+    assert set(sample.keys()) == {
+        "key",
+        "resources_balance",
+        "resources_entry_count",
+        "uses_balance",
+        "uses_entry_count",
+        "unclassified_balance",
+        "unclassified_entry_count",
+    }
     serialized_output = repr(result.output)
     assert "Achat" not in serialized_output
     assert "601000" not in serialized_output
+
+
+def test_executor_rejects_unsupported_business_nature_dimension() -> None:
+    docs_root = _docs_root()
+    workbook_path = docs_root / "GL_anonymise_2500.xlsx"
+    executor = _create_executor(docs_root)
+
+    result = executor.execute(
+        ToolCall(
+            name="aggregate_business_nature",
+            arguments={
+                "file_path": str(workbook_path),
+                "sheet_name": "Sheet1",
+                "dimension": "account",
+            },
+        ),
+    )
+
+    assert result.ok is False
+    assert result.error_code == "invalid_tool_call"
 
 
 def test_executor_queries_ledger_entries_with_pagination_and_allowed_columns() -> None:
@@ -1729,6 +1782,7 @@ def test_executor_persists_assessment_then_generates_report(tmp_path: Path) -> N
     assert report.ok is True
     assert report.output["case_count"] == 1
     assert report.output["amount_summaries"][0]["expected_amount"] == "5000"
+    assert report.output["audit_id"] == assessment.output["audit_id"]
     persisted = repository.get(str(assessment.output["audit_id"]))
     assert persisted is not None
     assert "tax-event:v1" in persisted.reference_versions

@@ -23,6 +23,7 @@ import type {
 import { ApiError } from "@/utils/api/errors";
 import useAlertStore, { AlertTypeStatus } from "@/store/alertStore";
 import { extractLedgerQueryResult } from "@/api/agent/ledgerQueryResult";
+import { extractRasAuditReportSummary } from "@/api/agent/rasAuditReport";
 import useAgentWorkspaceStore from "@/store/agentWorkspaceStore";
 
 export const AGENT_UPLOAD_ACCEPTED_EXTENSIONS = [".xlsx", ".xlsm"];
@@ -116,6 +117,7 @@ export const useAgentFileUpload = () => {
                   hasFileContext: Boolean(context?.active_file),
                   preAnalysis: null,
                   ledgerQuery: null,
+                  rasAuditReport: null,
                   executionEvents: [],
                   providerName: null,
                   modelName: null,
@@ -284,6 +286,7 @@ export const useAgentFileUpload = () => {
         hasFileContext: Boolean(submittedFile),
         preAnalysis: submittedPreAnalysis,
         ledgerQuery: null,
+        rasAuditReport: null,
         executionEvents: [],
         providerName: null,
         modelName: null,
@@ -395,6 +398,7 @@ export const useAgentFileUpload = () => {
               content: response.answer,
               status: "done",
               ledgerQuery: extractLedgerQueryResult(response),
+              rasAuditReport: extractRasAuditReportSummary(response),
               executionEvents: response.execution_events,
               providerName: response.provider_name,
               modelName: response.model_name,

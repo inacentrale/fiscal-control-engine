@@ -9,12 +9,15 @@ export const chartColors = [
   "#8B98A3",
 ];
 
+export type AccountBalanceSide = "debit" | "credit" | "balanced";
+
 export type ChartPoint = {
   label: string;
   shortLabel: string;
   value: number;
   fill: string;
   currency: string | null;
+  balanceSide: AccountBalanceSide | null;
 };
 
 export function chartPoints(chart: AgentDashboardChart, limit = 8): ChartPoint[] {
@@ -23,14 +26,35 @@ export function chartPoints(chart: AgentDashboardChart, limit = 8): ChartPoint[]
     : [];
   const commonCurrency =
     typeof chart.metadata.currency === "string" ? chart.metadata.currency : null;
+  const balanceSides = Array.isArray(chart.metadata.balance_sides)
+    ? chart.metadata.balance_sides
+    : [];
   return chart.labels.slice(0, limit).map((label, index) => ({
-    label,
-    shortLabel: shortLabel(label),
+    label: translateChartLabel(chart.chart_id, label),
+    shortLabel: shortLabel(translateChartLabel(chart.chart_id, label)),
     value: Number(chart.values[index] ?? 0),
     fill: chartColors[index % chartColors.length],
     currency:
       typeof currencies[index] === "string" ? currencies[index] : commonCurrency,
+    balanceSide: isBalanceSide(balanceSides[index]) ? balanceSides[index] : null,
   }));
+}
+
+function isBalanceSide(value: unknown): value is AccountBalanceSide {
+  return value === "debit" || value === "credit" || value === "balanced";
+}
+
+const severityLabels: Record<string, string> = {
+  error: "Erreur",
+  warning: "Avertissement",
+  info: "Information",
+};
+
+function translateChartLabel(chartId: string, label: string): string {
+  if (chartId === "data_quality_by_severity") {
+    return severityLabels[label] ?? label;
+  }
+  return label;
 }
 
 export function chartTotal(chart: AgentDashboardChart): number {

@@ -26,6 +26,7 @@ import {
   formatCompactNumber,
   formatAmount,
 } from "./analyticsUtils";
+import type { AccountBalanceSide } from "./analyticsUtils";
 
 type TooltipPayload = Array<{
   name?: string;
@@ -67,6 +68,12 @@ export default function AnalyticsChartCard({
         </span>
       </div>
 
+      {typeof chart.metadata.legend === "string" && chart.metadata.legend && (
+        <p className="mt-1.5 line-clamp-2 text-[10.5px] font-medium leading-4 text-[#8a98a2]">
+          {chart.metadata.legend}
+        </p>
+      )}
+
       {isEmpty ? (
         <div className="mt-4 flex h-[140px] items-center justify-center rounded-[14px] bg-[#f8fafb] px-4 text-center text-[12px] font-medium text-[#8a98a2]">
           Aucune donnée exploitable.
@@ -99,11 +106,23 @@ function FiscalHeroBars({ chart }: { chart: AgentDashboardChart }) {
 
         return (
           <div
-            className="grid grid-cols-[72px_minmax(0,1fr)_58px] items-center gap-2"
+            className="grid grid-cols-[84px_minmax(0,1fr)_58px] items-center gap-2"
             key={item.label}
           >
-            <span className="truncate text-[11px] font-semibold text-[#60737e]">
-              {item.label}
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-[11px] font-semibold text-[#60737e]">
+                {item.label}
+              </span>
+              {item.balanceSide && (
+                <span
+                  className={cn(
+                    "truncate text-[9px] font-semibold",
+                    balanceSideColor(item.balanceSide)
+                  )}
+                >
+                  {balanceSideLabel(item.balanceSide)}
+                </span>
+              )}
             </span>
             <div className="h-8 overflow-hidden rounded-full bg-[#eef4f7]">
               <motion.div
@@ -139,12 +158,13 @@ function FiscalComposedChart({
   const colors = ["#40515C", "#7FA6B7", "#E36F55"];
   const currency =
     typeof chart.metadata.currency === "string" ? chart.metadata.currency : null;
+  const hasBalanceSeries = chart.series.length > 2;
   const data = chart.labels.map((label, index) => ({
     label,
     shortLabel: label.length > 10 ? `${label.slice(0, 9)}...` : label,
     debit: Number(chart.series[0]?.values[index] ?? 0),
     credit: Number(chart.series[1]?.values[index] ?? 0),
-    balance: Number(chart.series[2]?.values[index] ?? chart.values[index] ?? 0),
+    balance: hasBalanceSeries ? Number(chart.series[2]?.values[index] ?? 0) : 0,
     currency,
   }));
 
@@ -176,15 +196,17 @@ function FiscalComposedChart({
           <Tooltip content={<ComposedTooltip currency={currency} />} cursor={{ fill: "rgba(127,166,183,0.10)" }} />
           <Bar dataKey="debit" fill={colors[0]} maxBarSize={16} name="Débit" radius={[6, 6, 0, 0]} />
           <Bar dataKey="credit" fill={colors[1]} maxBarSize={16} name="Crédit" radius={[6, 6, 0, 0]} />
-          <Line
-            dataKey="balance"
-            dot={{ fill: "#FFFFFF", r: 3, stroke: colors[2], strokeWidth: 2 }}
-            name="Solde"
-            stroke={colors[2]}
-            strokeLinecap="round"
-            strokeWidth={3}
-            type="monotone"
-          />
+          {hasBalanceSeries && (
+            <Line
+              dataKey="balance"
+              dot={{ fill: "#FFFFFF", r: 3, stroke: colors[2], strokeWidth: 2 }}
+              name="Solde"
+              stroke={colors[2]}
+              strokeLinecap="round"
+              strokeWidth={3}
+              type="monotone"
+            />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>
@@ -200,7 +222,12 @@ function FiscalBarChart({
   density: "default" | "modal";
   featured: boolean;
 }) {
-  const data = chartPoints(chart, featured ? 8 : 6);
+  const barLimit = featured
+    ? 8
+    : chart.chart_id === "amount_by_account_class"
+      ? 7
+      : 6;
+  const data = chartPoints(chart, barLimit);
   const height = featured ? "h-[190px]" : density === "modal" ? "h-[210px]" : "h-[142px]";
 
   return (
@@ -490,9 +517,25 @@ function ChartTooltip({
   );
 }
 
+function balanceSideLabel(side: AccountBalanceSide): string {
+  if (side === "debit") return "Débiteur";
+  if (side === "credit") return "Créditeur";
+  return "Soldé";
+}
+
+function balanceSideColor(side: AccountBalanceSide): string {
+  if (side === "debit") return "text-[#3f8f6f]";
+  if (side === "credit") return "text-[#c8563f]";
+  return "text-[#8a98a2]";
+}
+
 function metricLabel(metric: string): string {
   if (metric === "amount_sum") return "Montants";
   if (metric === "cumulative_balance") return "Solde cumulé";
+  if (metric === "cumulative_resources") return "Ressources cumulées";
+  if (metric === "cumulative_uses") return "Emplois cumulés";
+  if (metric === "resources_balance") return "Ressources";
+  if (metric === "uses_balance") return "Emplois";
   if (metric === "entry_count") return "Écritures";
   if (metric === "issue_count") return "Qualité";
   return metric;
@@ -521,12 +564,25 @@ function formatChartTotal(chart: AgentDashboardChart): string {
     uniqueCurrencies.length > 1 ? null : uniqueCurrencies[0] ?? fallbackCurrency;
   if (!isAmountMetric(chart.metric)) return formatCompactNumber(chartTotal(chart));
   if (uniqueCurrencies.length > 1) return "Multi-devises";
-  if (chart.metric === "cumulative_balance") {
+  if (isCumulativeMetric(chart.metric)) {
     return formatAmount(Number(chart.values.at(-1) ?? 0), currency);
   }
   return formatAmount(chartTotal(chart), currency);
 }
 
+function isCumulativeMetric(metric: string): boolean {
+  return (
+    metric === "cumulative_balance" ||
+    metric === "cumulative_resources" ||
+    metric === "cumulative_uses"
+  );
+}
+
 function isAmountMetric(metric: string): boolean {
-  return metric === "amount_sum" || metric === "cumulative_balance";
+  return (
+    metric === "amount_sum" ||
+    metric === "resources_balance" ||
+    metric === "uses_balance" ||
+    isCumulativeMetric(metric)
+  );
 }

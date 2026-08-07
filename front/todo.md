@@ -103,6 +103,13 @@ Checklist operationnelle du chantier front. Les cases seront cochees au fur et a
 - [ ] Ajouter le chat fiscal source via `query_tax_rag` et les tools GL structures.
 - [ ] Ajouter filtres, export du rapport et etats certain/probable/indeterminable sans masquer les limites.
 
+## Onglet Analytics "Tiers" — implemente mais gele
+
+- [x] Retirer l'onglet "Tiers" (`top_vendors_by_amount`, `top_customers_by_amount`) de `analyticsViews.ts` sans supprimer les charts backend correspondants.
+- [ ] Cause du gel: sur donnees reelles, `top_vendors_by_amount` ressort avec un solde technique deja positif (donc un fournisseur = classe 40 ne s'y verifie pas), le flip metier structurel applique (fournisseur toujours crediteur) produit alors des montants negatifs, plus faux qu'avant. Le tri des 12 fournisseurs affiches se fait aussi sur le solde technique brut, avant tout flip, donc potentiellement les mauvais tiers.
+- [ ] Reprendre en verifiant le compte reel touche par chaque ecriture taguee fournisseur/client (comme deja fait pour `account`/`account_class`) plutot que de supposer un sens fixe par dimension.
+- [ ] Re-activer l'onglet dans `analyticsViews.ts` une fois corrige et revalide sur donnees reelles.
+
 ## Ancienne Gestion des Declarations — implementee mais gelee
 
 Ces elements restent presents pour conserver l'existant. Ils ne sont plus prioritaires et ne doivent pas guider la nouvelle architecture.

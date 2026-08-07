@@ -4,6 +4,7 @@ import AgentExecutionTrace from "./AgentExecutionTrace";
 import AgentLedgerEntriesTable from "./AgentLedgerEntriesTable";
 import AgentMarkdownAnswer from "./AgentMarkdownAnswer";
 import AgentModelMeta from "./AgentModelMeta";
+import AgentRasAuditReportCard from "./AgentRasAuditReportCard";
 
 type AgentAssistantMessageProps = {
   message: Extract<AgentConversationMessage, { role: "assistant" }>;
@@ -27,6 +28,10 @@ export default function AgentAssistantMessage({
 
       {message.ledgerQuery && (
         <AgentLedgerEntriesTable result={message.ledgerQuery} />
+      )}
+
+      {message.rasAuditReport && (
+        <AgentRasAuditReportCard report={message.rasAuditReport} />
       )}
 
       {message.content && !message.ledgerQuery && (

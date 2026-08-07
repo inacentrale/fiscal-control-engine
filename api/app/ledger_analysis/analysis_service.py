@@ -65,6 +65,10 @@ class LedgerAggregationGroup:
     debit_total: float = 0.0
     credit_total: float = 0.0
     balance: float = 0.0
+    balance_side: str | None = None
+    normal_side: str | None = None
+    nature: str | None = None
+    business_balance: float | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +87,25 @@ class LedgerAggregationReport:
     aggregations: tuple[LedgerFieldAggregation, ...]
     sign_convention: str | None = None
     filters: dict[str, object] | None = None
+
+
+@dataclass(frozen=True)
+class LedgerDimensionNatureBalance:
+    key: str
+    resources_balance: float
+    resources_entry_count: int
+    uses_balance: float
+    uses_entry_count: int
+    unclassified_balance: float
+    unclassified_entry_count: int
+
+
+@dataclass(frozen=True)
+class LedgerDimensionNatureReport:
+    sheet_name: str
+    dimension: str
+    sign_convention: str | None
+    groups: tuple[LedgerDimensionNatureBalance, ...]
 
 
 @dataclass(frozen=True)
@@ -243,6 +266,11 @@ class LedgerAnalysisService:
                     amount_column=amount_column,
                     raw_amount_column=canonical_frame.fields["amount"],
                     limit=limit,
+                    account_balance_rules=(
+                        self._account_balance_rules
+                        if canonical_field == "account_class"
+                        else ()
+                    ),
                 )
                 for canonical_field in group_by
                 if canonical_field in LEDGER_AGGREGATION_FIELDS
@@ -256,6 +284,41 @@ class LedgerAnalysisService:
             aggregations=aggregations,
             sign_convention=_sign_convention(canonical_frame),
             filters=safe_filters,
+        )
+
+    def aggregate_business_nature(
+        self,
+        file_path: Path,
+        sheet_name: str,
+        dimension: str,
+    ) -> LedgerDimensionNatureReport:
+        canonical_frame = self._load_canonical_frame(file_path, sheet_name)
+        dimension_column = canonical_frame.fields.get(dimension)
+        account_column = canonical_frame.fields.get("account")
+        if dimension_column is None or account_column is None:
+            return LedgerDimensionNatureReport(
+                sheet_name=sheet_name,
+                dimension=dimension,
+                sign_convention=_sign_convention(canonical_frame),
+                groups=(),
+            )
+        amount_column = _calculation_amount_column(canonical_frame)
+        scoped_dataframe = _restrict_to_reporting_currency(
+            canonical_frame.dataframe,
+            canonical_frame.fields.get("currency"),
+        )
+        groups = _dimension_nature_balances(
+            dataframe=scoped_dataframe,
+            dimension_column=dimension_column,
+            account_column=account_column,
+            amount_column=amount_column,
+            rules=self._account_balance_rules,
+        )
+        return LedgerDimensionNatureReport(
+            sheet_name=sheet_name,
+            dimension=dimension,
+            sign_convention=_sign_convention(canonical_frame),
+            groups=groups,
         )
 
     def query_entries(
@@ -352,6 +415,7 @@ class LedgerAnalysisService:
                 amount_column=amount_column,
                 raw_amount_column=canonical_frame.fields["amount"],
                 limit=top_limit,
+                account_balance_rules=self._account_balance_rules,
             )
         return LedgerMetricsReport(
             sheet_name=sheet_name,
@@ -507,6 +571,41 @@ def _sign_convention(canonical_frame: _CanonicalLedgerFrame) -> str | None:
     return "debit_positive_credit_negative"
 
 
+def _account_balance_group_fields(
+    account: str | None,
+    balance: float,
+    rules: tuple[AccountBalanceRule, ...],
+) -> tuple[str | None, str | None, str | None, float]:
+    """Signe metier d'un solde selon le referentiel SYSCOHADA.
+
+    balance_side reflete le sens technique reel (toujours calculable).
+    normal_side/nature/business_balance dependent d'une regle trouvee; les
+    comptes/classes a fonctionnement variable (ex. classe 4 generique)
+    gardent le solde technique tel quel, faute de sens fixe a leur appliquer.
+    """
+    if balance > 0:
+        balance_side = "debit"
+    elif balance < 0:
+        balance_side = "credit"
+    else:
+        balance_side = "balanced"
+    rule = find_account_balance_rule(account, rules) if account is not None else None
+    if rule is None or rule.normal_side == "variable":
+        return balance_side, (rule.normal_side if rule else None), (
+            rule.nature if rule else None
+        ), balance
+    business_balance = balance if rule.normal_side == "debit" else -balance
+    return balance_side, rule.normal_side, rule.nature, round(business_balance, 2)
+
+
+def _class_digit_from_label(label: str) -> str | None:
+    prefix = "Classe "
+    if not label.startswith(prefix):
+        return None
+    digit = label[len(prefix) :]
+    return digit if digit.isdigit() else None
+
+
 def _aggregate_field(
     dataframe: pd.DataFrame,
     canonical_field: str,
@@ -514,6 +613,7 @@ def _aggregate_field(
     amount_column: str,
     raw_amount_column: str,
     limit: int,
+    account_balance_rules: tuple[AccountBalanceRule, ...] = (),
 ) -> LedgerFieldAggregation:
     currency_column = _currency_column(dataframe, source_column)
     group_columns = [source_column]
@@ -534,9 +634,25 @@ def _aggregate_field(
         entry_count = len(group)
         used_entry_count = int(signed_amounts.notna().sum())
         balance = round(float(signed_amounts.sum()), 2)
+        key = str(index[0] if isinstance(index, tuple) else index)
+        if canonical_field == "account":
+            balance_rule_key: str | None = key
+        elif canonical_field == "account_class":
+            balance_rule_key = _class_digit_from_label(key)
+        else:
+            balance_rule_key = None
+        balance_side, normal_side, nature, business_balance = (
+            _account_balance_group_fields(
+                balance_rule_key,
+                balance,
+                account_balance_rules,
+            )
+            if canonical_field in ("account", "account_class")
+            else (None, None, None, balance)
+        )
         groups_list.append(
             LedgerAggregationGroup(
-                key=str(index[0] if isinstance(index, tuple) else index),
+                key=key,
                 entry_count=entry_count,
                 amount_sum=balance,
                 currency=(
@@ -556,6 +672,10 @@ def _aggregate_field(
                     2,
                 ),
                 balance=balance,
+                balance_side=balance_side,
+                normal_side=normal_side,
+                nature=nature,
+                business_balance=business_balance,
             ),
         )
     if canonical_field == "period":
@@ -563,6 +683,16 @@ def _aggregate_field(
     elif canonical_field == "account_class":
         groups_list.sort(
             key=lambda group: (_account_class_sort_key(group.key), group.key),
+        )
+    elif canonical_field == "account" and account_balance_rules:
+        groups_list.sort(
+            key=lambda group: (
+                group.business_balance
+                if group.business_balance is not None
+                else group.balance,
+                group.entry_count,
+            ),
+            reverse=True,
         )
     else:
         groups_list.sort(
@@ -578,6 +708,111 @@ def _aggregate_field(
     )
 
 
+REPORTING_CURRENCY = "XOF"
+
+
+def _restrict_to_reporting_currency(
+    dataframe: pd.DataFrame,
+    currency_column: str | None,
+) -> pd.DataFrame:
+    """Vue cantonnee a la devise de reporting (XOF) pour les agregats macro
+    (classe de compte, periode) ou sommer plusieurs devises n'a pas de sens.
+
+    Les lignes en devise etrangere sont exclues (deja signalees ailleurs par
+    l'alerte qualite multi-devises); les lignes sans devise renseignee sont
+    considerees en XOF par defaut, la devise de reference du perimetre BF.
+    """
+    if currency_column is None or currency_column not in dataframe.columns:
+        return dataframe
+    normalized = dataframe[currency_column].map(_normalize_currency_value)
+    mask = normalized.isna() | (normalized == REPORTING_CURRENCY)
+    scoped = dataframe.loc[mask].copy()
+    scoped[currency_column] = REPORTING_CURRENCY
+    return scoped
+
+
+def _normalize_currency_value(value: object) -> str | None:
+    if pd.isna(value):
+        return None
+    text = str(value).strip().upper()
+    return text or None
+
+
+NATURE_BUCKET_RESOURCES = "resources"
+NATURE_BUCKET_USES = "uses"
+NATURE_BUCKET_UNCLASSIFIED = "unclassified"
+
+
+def _nature_bucket_for_account(
+    account: object,
+    rules: tuple[AccountBalanceRule, ...],
+) -> str:
+    """Classe un compte en ressource (credit normal) ou emploi (debit normal).
+
+    Les comptes a fonctionnement variable (tiers mixtes, tresorerie generique)
+    et les comptes sans regle connue restent 'unclassified': leur sens depend
+    du solde reel constate, pas d'une regle fixe, donc on ne les mele pas aux
+    deux courbes metier plutot que d'inventer une interpretation.
+    """
+    rule = find_account_balance_rule(account, rules)
+    if rule is None or rule.normal_side == "variable":
+        return NATURE_BUCKET_UNCLASSIFIED
+    return (
+        NATURE_BUCKET_RESOURCES if rule.normal_side == "credit" else NATURE_BUCKET_USES
+    )
+
+
+def _dimension_nature_balances(
+    dataframe: pd.DataFrame,
+    dimension_column: str,
+    account_column: str,
+    amount_column: str,
+    rules: tuple[AccountBalanceRule, ...],
+) -> tuple[LedgerDimensionNatureBalance, ...]:
+    prepared = dataframe.assign(
+        __nature_bucket=dataframe[account_column].map(
+            lambda value: _nature_bucket_for_account(value, rules),
+        ),
+        __dimension_key=dataframe[dimension_column].map(
+            lambda value: str(_stable_cell_value(value)),
+        ),
+        __signed=dataframe[amount_column],
+    )
+    grouped = prepared.groupby(
+        ["__dimension_key", "__nature_bucket"],
+        dropna=False,
+    )["__signed"].agg(["sum", "count"])
+    totals: dict[str, dict[str, tuple[float, int]]] = {}
+    for (dimension_key, bucket), row in grouped.iterrows():
+        totals.setdefault(dimension_key, {})[bucket] = (
+            round(float(row["sum"]), 2),
+            int(row["count"]),
+        )
+    results: list[LedgerDimensionNatureBalance] = []
+    for dimension_key, buckets in totals.items():
+        resources_technical, resources_count = buckets.get(
+            NATURE_BUCKET_RESOURCES,
+            (0.0, 0),
+        )
+        uses_technical, uses_count = buckets.get(NATURE_BUCKET_USES, (0.0, 0))
+        unclassified_technical, unclassified_count = buckets.get(
+            NATURE_BUCKET_UNCLASSIFIED,
+            (0.0, 0),
+        )
+        results.append(
+            LedgerDimensionNatureBalance(
+                key=dimension_key,
+                resources_balance=round(-resources_technical, 2),
+                resources_entry_count=resources_count,
+                uses_balance=uses_technical,
+                uses_entry_count=uses_count,
+                unclassified_balance=unclassified_technical,
+                unclassified_entry_count=unclassified_count,
+            ),
+        )
+    return tuple(results)
+
+
 def _aggregate_requested_field(
     dataframe: pd.DataFrame,
     canonical_field: str,
@@ -585,14 +820,19 @@ def _aggregate_requested_field(
     amount_column: str,
     raw_amount_column: str,
     limit: int,
+    account_balance_rules: tuple[AccountBalanceRule, ...] = (),
 ) -> LedgerFieldAggregation | None:
     if canonical_field == "account_class":
         account_column = fields.get("account")
         if account_column is None:
             return None
-        prepared_frame = dataframe.assign(
+        scoped_dataframe = _restrict_to_reporting_currency(
+            dataframe,
+            fields.get("currency"),
+        )
+        prepared_frame = scoped_dataframe.assign(
             **{
-                ACCOUNT_CLASS_COLUMN: dataframe[account_column].map(
+                ACCOUNT_CLASS_COLUMN: scoped_dataframe[account_column].map(
                     _account_class_label
                 ),
             },
@@ -604,17 +844,24 @@ def _aggregate_requested_field(
             amount_column=amount_column,
             raw_amount_column=raw_amount_column,
             limit=limit,
+            account_balance_rules=account_balance_rules,
         )
     source_column = fields.get(canonical_field)
     if source_column is None:
         return None
+    scoped_dataframe = (
+        _restrict_to_reporting_currency(dataframe, fields.get("currency"))
+        if canonical_field == "period"
+        else dataframe
+    )
     return _aggregate_field(
-        dataframe=dataframe,
+        dataframe=scoped_dataframe,
         canonical_field=canonical_field,
         source_column=source_column,
         amount_column=amount_column,
         raw_amount_column=raw_amount_column,
         limit=limit,
+        account_balance_rules=account_balance_rules,
     )
 
 
