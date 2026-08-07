@@ -193,7 +193,9 @@ function ExpandedAnalyticsModalBridge({
   const safeResult = result ?? emptyRasResult(dashboard.sheet_name);
   const signalItems = topEntries(safeResult.signalCounts, 4);
   const missingFactItems = topEntries(safeResult.missingFactCounts, 3);
-  const periods = safeResult.rasReview?.periods ?? [];
+  const periods = (safeResult.rasReview?.periods ?? []).filter(
+    (period) => period.currency === "XOF"
+  );
   const amount = primaryAmount(safeResult.candidateAmountsByCurrency);
   const candidateRate =
     safeResult.evaluatedPieceCount > 0
@@ -247,6 +249,10 @@ function emptyRasResult(sheetName: string): RasCandidateDetectionResult {
     signalCounts: {},
     operationHintCounts: {},
     candidateAmountsByCurrency: {},
+    candidateAccounts: [],
+    reviewCases: [],
+    sourceScopeComplete: false,
+    sourceScopeBlockers: [],
     missingFactCounts: {},
     issueCounts: {},
     rasReview: null,

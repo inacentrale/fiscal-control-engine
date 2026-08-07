@@ -188,7 +188,8 @@ def test_detect_ras_candidates_is_piece_level_and_review_only() -> None:
     assert "piece_level_deduplication" in detection.safeguards
     assert "review_only" in detection.safeguards
     assert "no_tax_decision" in detection.safeguards
-    assert "never_return_cell_values" in detection.safeguards
+    assert "aggregated_account_numbers_only" in detection.safeguards
+    assert "review_case_evidence_only" in detection.safeguards
     assert "column_mapping" in detection.input_schema["properties"]
     assert "filters" in detection.input_schema["properties"]
     assert "soumisRas" not in detection.output_schema["properties"]

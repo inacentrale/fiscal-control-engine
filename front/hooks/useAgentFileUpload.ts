@@ -44,6 +44,8 @@ const hasAcceptedExtension = (filename: string): boolean => {
 
 export const useAgentFileUpload = () => {
   const [attachedFile, setAttachedFile] = useState<AgentAttachedFile | null>(null);
+  const [activeFileContext, setActiveFileContext] =
+    useState<AgentAttachedFile | null>(null);
   const [pendingFile, setPendingFile] = useState<{ filename: string; sizeBytes: number } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [preAnalysis, setPreAnalysis] = useState<LedgerPreAnalysis | null>(null);
@@ -73,6 +75,7 @@ export const useAgentFileUpload = () => {
     revokeActivePreviewUrl(activePreviewUrlRef.current, previewUrlsRef.current);
     activePreviewUrlRef.current = null;
     setAttachedFile(null);
+    setActiveFileContext(null);
     setPendingFile(null);
     setUploadError(null);
     setPreAnalysis(null);
@@ -120,20 +123,20 @@ export const useAgentFileUpload = () => {
           )
         );
         const file = context?.active_file;
-        setAttachedFile(
-          file
-            ? {
-                sessionId: file.session_id,
-                fileId: file.file_id,
-                filename: file.original_filename,
-                sizeBytes: file.file_size_bytes ?? 0,
-                previewUrl: null,
-                expiresAt: file.expires_at,
-                sheetNames: file.sheet_names,
-                selectedSheetName: file.sheet_names[0] ?? "",
-              }
-            : null
-        );
+        const restoredFile = file
+          ? {
+              sessionId: file.session_id,
+              fileId: file.file_id,
+              filename: file.original_filename,
+              sizeBytes: file.file_size_bytes ?? 0,
+              previewUrl: null,
+              expiresAt: file.expires_at,
+              sheetNames: file.sheet_names,
+              selectedSheetName: file.sheet_names[0] ?? "",
+            }
+          : null;
+        setAttachedFile(restoredFile);
+        setActiveFileContext(restoredFile);
       } catch {
         if (!cancelled) {
           setMessages([]);
@@ -187,7 +190,7 @@ export const useAgentFileUpload = () => {
       setPendingFile(null);
       setPreAnalysis(null);
       setPreAnalysisError(null);
-      setAttachedFile({
+      const uploadedFileContext = {
         sessionId: response.session_id,
         fileId: response.file_id,
         filename: response.original_filename,
@@ -196,7 +199,9 @@ export const useAgentFileUpload = () => {
         expiresAt: response.expires_at,
         sheetNames: response.sheet_names,
         selectedSheetName,
-      });
+      };
+      setAttachedFile(uploadedFileContext);
+      setActiveFileContext(uploadedFileContext);
       queryClient.invalidateQueries({
         queryKey: agentSidebarQueryKeys.files,
       });
@@ -245,6 +250,7 @@ export const useAgentFileUpload = () => {
     revokeActivePreviewUrl(activePreviewUrlRef.current, previewUrlsRef.current);
     activePreviewUrlRef.current = null;
     setAttachedFile(null);
+    setActiveFileContext(null);
     setPendingFile(null);
     setUploadError(null);
     setPreAnalysis(null);
@@ -259,7 +265,7 @@ export const useAgentFileUpload = () => {
 
     const userMessageId = createMessageId("user");
     const assistantMessageId = createMessageId("assistant");
-    const submittedFile = attachedFile;
+    const submittedFile = attachedFile ?? activeFileContext;
     const submittedPreAnalysis = preAnalysis;
 
     setMessages((currentMessages) => [
@@ -284,7 +290,7 @@ export const useAgentFileUpload = () => {
       },
     ]);
 
-    if (submittedFile) {
+    if (attachedFile) {
       setAttachedFile(null);
       setPreAnalysis(null);
       setPreAnalysisError(null);

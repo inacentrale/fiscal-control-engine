@@ -1017,6 +1017,15 @@ def test_executor_detects_ras_candidates_with_structured_safe_summary(
     assert result.output["candidate_piece_count"] == 1
     assert result.output["status_counts"] == {"candidate_account_and_text": 1}
     assert result.output["candidate_amounts_by_currency"] == {"XOF": "100000"}
+    assert result.output["candidate_accounts"] == [
+        {
+            "account_number": "0632100",
+            "candidate_piece_count": 1,
+            "amounts_by_currency": {"XOF": "100000"},
+            "status_counts": {"candidate_account_and_text": 1},
+            "signal_counts": {"SIG-RAS-001": 1},
+        }
+    ]
     assert result.output["ras_review"] == {
         "periods": [
             {
@@ -1030,11 +1039,29 @@ def test_executor_detects_ras_candidates_with_structured_safe_summary(
         ],
     }
     assert result.output["decision_status"] == "review_only_no_tax_conclusion"
+    assert result.output["review_cases"] == [
+        {
+            "candidate_id": result.output["review_cases"][0]["candidate_id"],
+            "priority": "low",
+            "document_number": "000042",
+            "posting_date": "2025-01-10",
+            "fiscal_year": 2025,
+            "period": 1,
+            "account_numbers": ["0632100"],
+            "label": "Honoraires synthetiques",
+            "amounts_by_currency": {"XOF": "100000"},
+            "detection_status": "candidate_account_and_text",
+            "signal_ids": ["SIG-RAS-001"],
+            "operation_hints": ["professional_service"],
+            "counterpart_status": "found_in_same_entry",
+            "recorded_ras_amounts_by_currency": {"XOF": "5000"},
+            "missing_facts": [],
+            "issues": [],
+            "recommended_action": "validate_recorded_counterpart",
+        }
+    ]
     serialized_output = repr(result.output)
-    assert "000042" not in serialized_output
-    assert "0632100" not in serialized_output
     assert "SYN-TIERS-001" not in serialized_output
-    assert "Honoraires synthetiques" not in serialized_output
 
 
 def test_executor_ignores_empty_ras_candidate_column_mapping(

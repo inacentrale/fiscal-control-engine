@@ -6,10 +6,7 @@ import type { AgentFileDashboard } from "@/api/agent/types";
 import {
   Chart2Icon,
   DocumentTextIcon,
-  MoneyTickIcon,
-  PercentageSquareIcon,
   SearchStatusIcon,
-  StatusUpIcon,
 } from "@/public/assets/icons/AnalyticsIcons";
 
 import AnalyticsStatGrid, { type AnalyticsStatItem } from "./AnalyticsStatGrid";
@@ -33,27 +30,8 @@ export default function AnalyticsKpiGrid({
     "summary",
     "used_entry_count"
   );
-  const debitTotal = dashboardNumber(dashboard, "summary", "debit_total");
-  const creditTotal = dashboardNumber(dashboard, "summary", "credit_total");
-  const balance = dashboardNumber(dashboard, "summary", "balance");
-  const averageAmount = dashboardNumber(dashboard, "summary", "average_amount");
   const currencyCount = dashboardNumber(dashboard, "summary", "currency_count");
   const issueCount = dashboardNumber(dashboard, "quality", "issue_count");
-  const amountsByCurrency = Object.entries(
-    dashboard.amount_metrics_by_currency ?? {}
-  ).map(([currency, metrics]) => ({
-    currency,
-    value: typeof metrics.sum === "number" ? metrics.sum : 0,
-  }));
-  const amountValue =
-    amountsByCurrency.length > 0
-      ? amountsByCurrency
-          .map(({ currency, value }) => formatAmount(value, currency))
-          .join(" · ")
-      : formatAmount(dashboardNumber(dashboard, "metrics", "sum"));
-  const primaryCurrency =
-    amountsByCurrency.length === 1 ? amountsByCurrency[0]?.currency : null;
-  const balanceScale = Math.max(Math.abs(debitTotal), Math.abs(creditTotal), 1);
   const kpis = [
     {
       label: "Lignes",
@@ -62,10 +40,6 @@ export default function AnalyticsKpiGrid({
     {
       label: "Colonnes",
       value: formatCompactNumber(columnCount),
-    },
-    {
-      label: "Montant",
-      value: amountValue,
     },
     {
       label: "Alertes",
@@ -94,50 +68,6 @@ export default function AnalyticsKpiGrid({
       label: "Structure",
       progress: 1,
       value: formatCompactNumber(usedEntryCount || rowCount),
-    },
-    {
-      accent: "#D7A44A",
-      detail: primaryCurrency
-        ? `Valeur nette en ${primaryCurrency}`
-        : "Valeur nette du fichier",
-      icon: <MoneyTickIcon className="size-5" />,
-      label: "Montant",
-      progress: 1,
-      strong: true,
-      value: amountValue,
-    },
-    {
-      accent: "#12A17D",
-      detail: "Total des mouvements débit",
-      icon: <MoneyTickIcon className="size-5" />,
-      label: "Débit",
-      progress: 1,
-      value: formatAmount(debitTotal, primaryCurrency),
-    },
-    {
-      accent: "#7FA6B7",
-      detail: "Total des mouvements crédit",
-      icon: <MoneyTickIcon className="size-5" />,
-      label: "Crédit",
-      progress: 1,
-      value: formatAmount(creditTotal, primaryCurrency),
-    },
-    {
-      accent: "#40515C",
-      detail: "Écart entre débit et crédit",
-      icon: <StatusUpIcon className="size-5" />,
-      label: "Solde",
-      progress: Math.min(Math.abs(balance) / balanceScale, 1),
-      strong: true,
-      value: formatAmount(balance, primaryCurrency),
-    },
-    {
-      accent: "#D7A44A",
-      detail: "Montant moyen par écriture",
-      icon: <PercentageSquareIcon className="size-5" />,
-      label: "Moyenne",
-      progress: 1,
-      value: formatAmount(averageAmount, primaryCurrency),
     },
     {
       accent: "#8B98A3",

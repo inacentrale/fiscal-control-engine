@@ -609,6 +609,22 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                         "signal_counts": {"type": "object"},
                         "operation_hint_counts": {"type": "object"},
                         "candidate_amounts_by_currency": {"type": "object"},
+                        "candidate_accounts": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "account_number": {"type": "string"},
+                                    "candidate_piece_count": {"type": "integer"},
+                                    "amounts_by_currency": {"type": "object"},
+                                    "status_counts": {"type": "object"},
+                                    "signal_counts": {"type": "object"},
+                                },
+                            },
+                        },
+                        "review_cases": {"type": "array"},
+                        "source_scope_complete": {"type": "boolean"},
+                        "source_scope_blockers": {"type": "array"},
                         "missing_fact_counts": {"type": "object"},
                         "issue_counts": {"type": "object"},
                         "decision_status": {"type": "string"},
@@ -623,7 +639,8 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                     "no_tax_decision",
                     "piece_level_deduplication",
                     "summary_only",
-                    "never_return_cell_values",
+                    "aggregated_account_numbers_only",
+                    "review_case_evidence_only",
                 ),
             ),
             AgentToolDefinition(

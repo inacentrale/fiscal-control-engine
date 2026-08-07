@@ -802,6 +802,35 @@ class ExcelToolExecutor:
                         filtered_reconstruction = AccountingEntryReconstructor(
                             self._posting_key_rules
                         ).reconstruct(filtered_entries)
+                        detection_report = RasCandidateDetector(
+                            posting_key_rules=self._posting_key_rules,
+                            account_mappings=self._ras_ledger_account_mappings,
+                            signals=self._ras_candidate_signals,
+                            semantic_classifier=self._ras_semantic_classifier,
+                        ).detect(
+                            ledger_entries=filtered_entries,
+                            reconstruction=filtered_reconstruction,
+                        )
+                        scope = assess_uploaded_sheet_scope(
+                            normalization=normalization_report,
+                            reconstruction=filtered_reconstruction,
+                            posting_key_rules=self._posting_key_rules,
+                            account_mappings=self._ras_ledger_account_mappings,
+                        )
+                        counterpart_report = (
+                            RasCounterpartFinder(
+                                posting_key_rules=self._posting_key_rules,
+                                account_mappings=self._ras_ledger_account_mappings,
+                            ).find(
+                                ledger_entries=filtered_entries,
+                                reconstruction=filtered_reconstruction,
+                                source_scope_complete=scope.is_complete,
+                            )
+                            if has_ras_payable_mapping(
+                                self._ras_ledger_account_mappings
+                            )
+                            else None
+                        )
                         result = RasCandidateDetectionToolReport(
                             sheet_name=normalization_report.sheet_name,
                             source_row_count=(
@@ -818,15 +847,10 @@ class ExcelToolExecutor:
                             normalization_issue_codes=filtered_issue_codes,
                             ledger_entries=filtered_entries,
                             reconstruction=filtered_reconstruction,
-                            report=RasCandidateDetector(
-                                posting_key_rules=self._posting_key_rules,
-                                account_mappings=self._ras_ledger_account_mappings,
-                                signals=self._ras_candidate_signals,
-                                semantic_classifier=self._ras_semantic_classifier,
-                            ).detect(
-                                ledger_entries=filtered_entries,
-                                reconstruction=filtered_reconstruction,
-                            ),
+                            report=detection_report,
+                            counterpart_report=counterpart_report,
+                            source_scope_complete=scope.is_complete,
+                            source_scope_blockers=scope.blocker_codes,
                         )
                     elif validated_call.name == "classify_transaction_semantics":
                         if self._ras_semantic_classifier is None:
@@ -1922,6 +1946,7 @@ def _serialize_result(
         operation_hint_counts: dict[str, int] = {}
         candidate_missing_fact_counts: dict[str, int] = {}
         amount_totals: dict[str, Decimal] = {}
+        candidate_accounts: dict[str, dict[str, object]] = {}
         semantic_scores: list[float] = []
         for candidate in candidates:
             candidate_status_counts[candidate.status.value] = (
@@ -1939,6 +1964,38 @@ def _serialize_result(
                 amount_totals[amount.currency] = (
                     amount_totals.get(amount.currency, Decimal("0")) + amount.amount
                 )
+            counted_accounts: set[str] = set()
+            for account_amount in candidate.account_amounts:
+                account = candidate_accounts.setdefault(
+                    account_amount.account_number,
+                    {
+                        "candidate_ids": set(),
+                        "amounts": {},
+                        "status_counts": {},
+                        "signal_counts": {},
+                    },
+                )
+                candidate_ids = account["candidate_ids"]
+                assert isinstance(candidate_ids, set)
+                candidate_ids.add(candidate.candidate_id)
+                amounts = account["amounts"]
+                assert isinstance(amounts, dict)
+                amounts[account_amount.currency] = (
+                    amounts.get(account_amount.currency, Decimal("0"))
+                    + account_amount.amount
+                )
+                if account_amount.account_number in counted_accounts:
+                    continue
+                counted_accounts.add(account_amount.account_number)
+                statuses = account["status_counts"]
+                assert isinstance(statuses, dict)
+                statuses[candidate.status.value] = (
+                    statuses.get(candidate.status.value, 0) + 1
+                )
+                signals = account["signal_counts"]
+                assert isinstance(signals, dict)
+                for signal_id in candidate.signal_ids:
+                    signals[signal_id] = signals.get(signal_id, 0) + 1
             if candidate.semantic_similarity is not None:
                 semantic_scores.append(candidate.semantic_similarity)
         candidate_issue_counts: dict[str, int] = {}
@@ -1959,6 +2016,28 @@ def _serialize_result(
                 currency: str(amount)
                 for currency, amount in sorted(amount_totals.items())
             },
+            "candidate_accounts": [
+                {
+                    "account_number": account_number,
+                    "candidate_piece_count": len(summary["candidate_ids"]),
+                    "amounts_by_currency": {
+                        currency: str(amount)
+                        for currency, amount in sorted(summary["amounts"].items())
+                    },
+                    "status_counts": dict(sorted(summary["status_counts"].items())),
+                    "signal_counts": dict(sorted(summary["signal_counts"].items())),
+                }
+                for account_number, summary in sorted(
+                    candidate_accounts.items(),
+                    key=lambda item: (
+                        -len(item[1]["candidate_ids"]),
+                        item[0],
+                    ),
+                )
+            ],
+            "review_cases": _ras_candidate_review_cases(result),
+            "source_scope_complete": result.source_scope_complete,
+            "source_scope_blockers": list(result.source_scope_blockers),
             "ras_review": _ras_review_summary(result),
             "missing_fact_counts": candidate_missing_fact_counts,
             "issue_counts": candidate_issue_counts,
@@ -2637,6 +2716,115 @@ def _accounting_entry_selector(raw_value: object) -> dict[str, str | int] | None
         "journal": journal.strip(),
         "document_number": document_number.strip(),
     }
+
+
+def _ras_candidate_review_cases(
+    result: RasCandidateDetectionToolReport,
+) -> list[dict[str, object]]:
+    lines_by_id = {line.line_id: line for line in result.ledger_entries}
+    counterparts = {
+        assessment.candidate_entry_id: assessment
+        for assessment in (
+            result.counterpart_report.assessments
+            if result.counterpart_report is not None
+            else ()
+        )
+    }
+    cases: list[dict[str, object]] = []
+    for candidate in result.report.candidates:
+        lines = tuple(
+            lines_by_id[line_id]
+            for line_id in candidate.line_ids
+            if line_id in lines_by_id
+        )
+        counterpart = counterparts.get(candidate.accounting_entry_id)
+        counterpart_status = (
+            counterpart.status.value if counterpart is not None else "not_evaluated"
+        )
+        missing_facts = tuple(
+            sorted(
+                set(candidate.missing_facts)
+                | set(counterpart.missing_facts if counterpart is not None else ())
+            )
+        )
+        priority, action = _ras_review_priority_and_action(
+            counterpart_status=counterpart_status,
+            missing_facts=missing_facts,
+        )
+        accounts = tuple(
+            dict.fromkeys(
+                amount.account_number for amount in candidate.account_amounts
+            )
+        ) or tuple(
+            dict.fromkeys(
+                line.account_number for line in lines if line.account_number
+            )
+        )
+        labels = tuple(dict.fromkeys(line.label for line in lines if line.label))
+        source_line = lines[0] if lines else None
+        cases.append(
+            {
+                "candidate_id": candidate.candidate_id,
+                "priority": priority,
+                "document_number": (
+                    source_line.document_number if source_line is not None else None
+                ),
+                "posting_date": (
+                    source_line.posting_date.isoformat()
+                    if source_line is not None and source_line.posting_date is not None
+                    else None
+                ),
+                "fiscal_year": (
+                    source_line.fiscal_year if source_line is not None else None
+                ),
+                "period": source_line.period if source_line is not None else None,
+                "account_numbers": list(accounts),
+                "label": " | ".join(labels) if labels else None,
+                "amounts_by_currency": {
+                    amount.currency: str(amount.amount)
+                    for amount in candidate.amounts
+                },
+                "detection_status": candidate.status.value,
+                "signal_ids": list(candidate.signal_ids),
+                "operation_hints": list(candidate.operation_hints),
+                "counterpart_status": counterpart_status,
+                "recorded_ras_amounts_by_currency": {
+                    amount.currency: str(amount.amount)
+                    for amount in (
+                        counterpart.recorded_amounts if counterpart is not None else ()
+                    )
+                },
+                "missing_facts": list(missing_facts),
+                "issues": list(counterpart.issues if counterpart is not None else ()),
+                "recommended_action": action,
+            }
+        )
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    return sorted(
+        cases,
+        key=lambda case: (
+            priority_order.get(str(case["priority"]), 3),
+            str(case["posting_date"] or ""),
+            str(case["document_number"] or ""),
+        ),
+    )
+
+
+def _ras_review_priority_and_action(
+    *,
+    counterpart_status: str,
+    missing_facts: tuple[str, ...],
+) -> tuple[str, str]:
+    if counterpart_status == RasCounterpartStatus.NOT_FOUND_IN_SCOPE.value:
+        return "high", "verify_ras_booking"
+    if counterpart_status == RasCounterpartStatus.POTENTIAL_RELATED_ENTRY.value:
+        return "medium", "confirm_related_counterpart"
+    if counterpart_status in {
+        RasCounterpartStatus.INDETERMINATE.value,
+        "not_evaluated",
+    } or missing_facts:
+        return "medium", "complete_missing_information"
+    return "low", "validate_recorded_counterpart"
 
 
 def _ras_review_summary(result: RasCandidateDetectionToolReport) -> dict[str, object]:

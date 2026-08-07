@@ -15,6 +15,7 @@ from app.ras_audit.candidate_signals import (
     RasCandidateSignal,
     matching_candidate_signals,
 )
+from app.ras_audit.counterpart import RasCounterpartReport
 from app.ras_audit.domain import CanonicalLedgerEntry
 from app.ras_audit.semantic_classifier import (
     RasSemanticClassification,
@@ -37,6 +38,13 @@ class RasCandidateAmount:
 
 
 @dataclass(frozen=True)
+class RasCandidateAccountAmount:
+    account_number: str
+    currency: str
+    amount: Decimal
+
+
+@dataclass(frozen=True)
 class RasCandidateAssessment:
     candidate_id: str
     accounting_entry_id: str
@@ -49,6 +57,7 @@ class RasCandidateAssessment:
     missing_facts: tuple[str, ...]
     exclusion_signal_ids: tuple[str, ...]
     semantic_similarity: float | None = None
+    account_amounts: tuple[RasCandidateAccountAmount, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -73,6 +82,9 @@ class RasCandidateDetectionToolReport:
     ledger_entries: tuple[CanonicalLedgerEntry, ...]
     reconstruction: AccountingEntryReconstructionReport
     report: RasCandidateDetectionReport
+    counterpart_report: RasCounterpartReport | None = None
+    source_scope_complete: bool = False
+    source_scope_blockers: tuple[str, ...] = ()
 
 
 def candidate_requires_category_split(candidate: RasCandidateAssessment) -> bool:
@@ -294,6 +306,7 @@ class RasCandidateDetector:
             missing_facts=tuple(missing_facts),
             exclusion_signal_ids=tuple(sorted(exclusion_signals)),
             semantic_similarity=(semantic.similarity if semantic else None),
+            account_amounts=_account_amounts(account_lines, reverse_account_lines),
         ), False
 
     def _semantic_only_ambiguous(
@@ -352,6 +365,29 @@ def _amounts(
     return tuple(
         RasCandidateAmount(currency=currency, amount=amount)
         for currency, amount in sorted(totals.items())
+    )
+
+
+def _account_amounts(
+    normal_lines: list[tuple[CanonicalLedgerEntry, RasLedgerAccountMapping]],
+    reverse_lines: list[tuple[CanonicalLedgerEntry, RasLedgerAccountMapping]],
+) -> tuple[RasCandidateAccountAmount, ...]:
+    totals: dict[tuple[str, str], Decimal] = {}
+    for line, _ in normal_lines:
+        if line.account_number and line.amount is not None and line.currency:
+            key = (line.account_number, line.currency)
+            totals[key] = totals.get(key, Decimal("0")) + abs(line.amount)
+    for line, _ in reverse_lines:
+        if line.account_number and line.amount is not None and line.currency:
+            key = (line.account_number, line.currency)
+            totals[key] = totals.get(key, Decimal("0")) - abs(line.amount)
+    return tuple(
+        RasCandidateAccountAmount(
+            account_number=account_number,
+            currency=currency,
+            amount=amount,
+        )
+        for (account_number, currency), amount in sorted(totals.items())
     )
 
 

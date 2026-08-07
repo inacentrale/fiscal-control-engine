@@ -224,11 +224,43 @@ export type RasCandidateDetectionResult = {
   signalCounts: Record<string, number>;
   operationHintCounts: Record<string, number>;
   candidateAmountsByCurrency: Record<string, string>;
+  candidateAccounts: RasCandidateAccountSummary[];
+  reviewCases: RasCandidateReviewCase[];
+  sourceScopeComplete: boolean;
+  sourceScopeBlockers: string[];
   missingFactCounts: Record<string, number>;
   issueCounts: Record<string, number>;
   rasReview: RasReviewSummary | null;
   decisionStatus: string;
   semanticModel: Record<string, unknown> | null;
+};
+
+export type RasCandidateReviewCase = {
+  candidateId: string;
+  priority: "high" | "medium" | "low";
+  documentNumber: string | null;
+  postingDate: string | null;
+  fiscalYear: number | null;
+  period: number | null;
+  accountNumbers: string[];
+  label: string | null;
+  amountsByCurrency: Record<string, string>;
+  detectionStatus: string;
+  signalIds: string[];
+  operationHints: string[];
+  counterpartStatus: string;
+  recordedRasAmountsByCurrency: Record<string, string>;
+  missingFacts: string[];
+  issues: string[];
+  recommendedAction: string;
+};
+
+export type RasCandidateAccountSummary = {
+  accountNumber: string;
+  candidatePieceCount: number;
+  amountsByCurrency: Record<string, string>;
+  statusCounts: Record<string, number>;
+  signalCounts: Record<string, number>;
 };
 
 export type RasReviewPeriod = {

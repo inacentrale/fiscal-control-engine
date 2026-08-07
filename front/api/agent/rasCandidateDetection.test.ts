@@ -13,6 +13,22 @@ describe("rasCandidateDetection", () => {
     expect(result?.candidatePieceCount).toBe(611);
     expect(result?.statusCounts.candidate_account_and_text).toBe(59);
     expect(result?.candidateAmountsByCurrency.XOF).toBe("100000");
+    expect(result?.candidateAccounts).toEqual([
+      {
+        accountNumber: "61365000",
+        candidatePieceCount: 12,
+        amountsByCurrency: { XOF: "100000" },
+        statusCounts: { candidate_account_and_text: 12 },
+        signalCounts: { "SIG-RAS-001": 12 },
+      },
+    ]);
+    expect(result?.reviewCases[0]).toMatchObject({
+      priority: "high",
+      documentNumber: "2024-00125",
+      accountNumbers: ["61365000"],
+      counterpartStatus: "not_found_in_scope",
+      recommendedAction: "verify_ras_booking",
+    });
     expect(result?.rasReview?.periods).toEqual([
       {
         period: "1",
@@ -45,6 +61,33 @@ describe("rasCandidateDetection", () => {
   it("formats RAS amounts by currency", () => {
     expect(formatRasAmount("100000", "XOF")).toBe("100\u00A0k XOF");
   });
+
+  it("computes cumulative candidate amounts independently by currency", () => {
+    const response = buildResponse();
+    const output = response.tool_results[0].output as {
+      ras_review: { periods: Array<Record<string, unknown>> };
+    };
+    output.ras_review.periods.push({
+      period: "1",
+      evaluated_entry_count: 1,
+      candidate_entry_count: 1,
+      candidate_amount: 10,
+      candidate_rate: 1,
+      currency: "EUR",
+    });
+
+    const result = extractRasCandidateDetectionResult(response);
+
+    expect(
+      result?.rasReview?.periods.find(
+        (period) => period.period === "2" && period.currency === "XOF"
+      )?.cumulativeCandidateAmount
+    ).toBe(100000);
+    expect(
+      result?.rasReview?.periods.find((period) => period.currency === "EUR")
+        ?.cumulativeCandidateAmount
+    ).toBe(10);
+  });
 });
 
 function buildResponse(): AgentRunResponse {
@@ -74,6 +117,38 @@ function buildResponse(): AgentRunResponse {
           signal_counts: { services: 82 },
           operation_hint_counts: { service_fees: 90 },
           candidate_amounts_by_currency: { XOF: "100000" },
+          candidate_accounts: [
+            {
+              account_number: "61365000",
+              candidate_piece_count: 12,
+              amounts_by_currency: { XOF: "100000" },
+              status_counts: { candidate_account_and_text: 12 },
+              signal_counts: { "SIG-RAS-001": 12 },
+            },
+          ],
+          review_cases: [
+            {
+              candidate_id: "candidate-1",
+              priority: "high",
+              document_number: "2024-00125",
+              posting_date: "2024-03-12",
+              fiscal_year: 2024,
+              period: 3,
+              account_numbers: ["61365000"],
+              label: "Honoraires conseil",
+              amounts_by_currency: { XOF: "100000" },
+              detection_status: "candidate_account_and_text",
+              signal_ids: ["SIG-RAS-001"],
+              operation_hints: ["professional_service"],
+              counterpart_status: "not_found_in_scope",
+              recorded_ras_amounts_by_currency: {},
+              missing_facts: [],
+              issues: [],
+              recommended_action: "verify_ras_booking",
+            },
+          ],
+          source_scope_complete: true,
+          source_scope_blockers: [],
           missing_fact_counts: { posting_key_side: 3 },
           issue_counts: {},
           ras_review: {
