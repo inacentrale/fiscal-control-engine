@@ -996,6 +996,46 @@ def test_executor_finds_ras_counterpart_with_structured_safe_summary(
     assert "SYN-TIERS-001" not in serialized_output
 
 
+def test_executor_finds_counterpart_for_selected_accounting_entry(
+    tmp_path: Path,
+) -> None:
+    workbook_path = write_ras_audit_grand_livre(tmp_path)
+
+    result = _create_executor(tmp_path).execute(
+        ToolCall(
+            name="find_ras_counterpart",
+            arguments={
+                "file_path": str(workbook_path),
+                "sheet_name": "GL",
+                "entry_selector": {
+                    "document_number": "000042",
+                    "fiscal_year": 2025,
+                },
+            },
+        ),
+    )
+
+    assert result.ok is True
+    assert result.output["selector"] == {
+        "document_number": "000042",
+        "fiscal_year": 2025,
+    }
+    assert result.output["selected_entry_found"] is True
+    assert result.output["selected_candidate_found"] is True
+    assert result.output["candidate_piece_count"] == 1
+    selected_case = result.output["selected_case"]
+    assert selected_case["document_number"] == "000042"
+    assert selected_case["counterpart_status"] == "found_in_same_entry"
+    assert selected_case["recorded_amounts"] == [
+        {"currency": "XOF", "amount": "5000"}
+    ]
+    assert {line["account"] for line in selected_case["lines"]} == {
+        "0632100",
+        "0401100",
+        "0447100",
+    }
+
+
 def test_executor_explains_incomplete_scope_for_invalid_currency(
     tmp_path: Path,
 ) -> None:

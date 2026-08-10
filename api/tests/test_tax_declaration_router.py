@@ -764,7 +764,7 @@ def test_reconciles_withholding_with_supporting_documents() -> None:
 
 
 def test_reconciles_iuts_and_corporate_tax_supporting_documents() -> None:
-    cases = (
+    cases: tuple[dict[str, str | bytes], ...] = (
         {
             "type": "payroll_tax",
             "selector_field": "line_number",

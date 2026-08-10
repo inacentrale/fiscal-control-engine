@@ -564,6 +564,19 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                         "file_path": {"type": "string"},
                         "sheet_name": {"type": "string"},
                         "column_mapping": {"type": "object"},
+                        "entry_selector": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["document_number"],
+                            "properties": {
+                                "company_code": {"type": ["string", "null"]},
+                                "fiscal_year": {"type": ["integer", "string"]},
+                                "journal": {"type": "string"},
+                                "document_number": {
+                                    "type": ["string", "integer"],
+                                },
+                            },
+                        },
                         "related_window_days": {
                             "type": "integer",
                             "minimum": 0,
@@ -592,6 +605,10 @@ def create_excel_tool_registry() -> AgentToolRegistry:
                         "source_scope_complete": {"type": "boolean"},
                         "source_scope_blockers": {"type": "array"},
                         "source_scope_policy_version": {"type": "string"},
+                        "selector": {"type": ["object", "null"]},
+                        "selected_entry_found": {"type": "boolean"},
+                        "selected_candidate_found": {"type": "boolean"},
+                        "selected_case": {"type": ["object", "null"]},
                     },
                 },
                 safeguards=(

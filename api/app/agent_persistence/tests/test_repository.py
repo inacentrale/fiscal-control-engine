@@ -329,6 +329,40 @@ def test_repository_groups_searches_and_restores_session_conversation(
     ]
 
 
+def test_repository_deletes_complete_conversation_but_keeps_file(
+    tmp_path: Path,
+) -> None:
+    source_path = write_minified_grand_livre(tmp_path / "sources")
+    session_factory = _create_session_factory(tmp_path)
+    repository = SqlAlchemyAgentRepository(session_factory=session_factory)
+    store = PersistentAgentFileStore(
+        storage_root=tmp_path / "sessions",
+        repository=repository,
+    )
+    stored_file = store.store(source_path, original_filename="grand_livre.xlsx")
+    first_run_id = repository.save_run(
+        user_message="Première question",
+        result=_simple_result("Première réponse"),
+        session_id=stored_file.session_id,
+        file_id=stored_file.file_id,
+    )
+    second_run_id = repository.save_run(
+        user_message="Deuxième question",
+        result=_simple_result("Deuxième réponse"),
+        session_id=stored_file.session_id,
+        file_id=stored_file.file_id,
+    )
+
+    deleted = repository.delete_conversation(second_run_id)
+
+    assert deleted is True
+    assert repository.get_conversation(first_run_id) is None
+    assert repository.get_conversation(second_run_id) is None
+    assert repository.list_recent_conversations() == ()
+    assert repository.find_file(stored_file.session_id, stored_file.file_id) is not None
+    assert repository.delete_conversation(second_run_id) is False
+
+
 def _simple_result(answer: str) -> AgentRunResult:
     return AgentRunResult(
         answer=answer,

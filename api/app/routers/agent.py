@@ -39,18 +39,38 @@ from app.config import Settings, get_settings
 from app.database import Base, create_database_engine, create_session_factory
 from app.llm.domain import ToolCall
 from app.llm.model_provider_factory import create_model_provider
-from app.ras_audit.audit_report import RasAuditReport, RasAuditReportGenerator
+from app.ras_audit.audit_derivation import RasAuditDerivationService
+from app.ras_audit.audit_report import (
+    RAS_REPORT_CONTRACT_VERSION,
+    RasAuditReport,
+    RasAuditReportGenerator,
+    ras_report_business_payload,
+)
 from app.ras_audit.fact_context import (
     RasExplicitFactExtractor,
     RasFactContextAttestor,
     RasFactExtraction,
     load_ras_user_fact_patterns,
 )
+from app.ras_audit.jobs import (
+    RasCandidateJob,
+    RasCandidateJobRepository,
+    run_candidate_jobs,
+)
 from app.ras_audit.persisted_report import (
     PersistedRasAuditReportError,
     PersistedRasAuditReportService,
 )
 from app.ras_audit.persistence import SqlAlchemyRasAuditRepository
+from app.ras_audit.report_exports import (
+    RAS_REPORT_EXPORT_MAX_BYTES,
+    render_ras_report_pdf,
+    render_ras_report_xlsx,
+)
+from app.ras_audit.workflow import (
+    RasAuditWorkflowService,
+    RasWorkflowStatusError,
+)
 from app.schemas.agent import (
     AgentConversationDetailResponse,
     AgentConversationListResponse,
@@ -67,6 +87,12 @@ from app.schemas.agent import (
     AgentSessionContextEventResponse,
     AgentSessionContextResponse,
     AgentToolResultResponse,
+    RasCandidateAssessmentRequest,
+    RasCandidateJobBatchRequest,
+    RasCandidateJobBatchResponse,
+    RasCandidateJobResponse,
+    RasWorkflowCaseResponse,
+    RasWorkflowStatusResponse,
 )
 
 DEFAULT_AGENT_TOOLS = (
@@ -187,6 +213,15 @@ def _get_ras_audit_repository(database_url: str) -> SqlAlchemyRasAuditRepository
     return SqlAlchemyRasAuditRepository(session_factory=create_session_factory(engine))
 
 
+@lru_cache
+def _get_ras_candidate_job_repository(
+    database_url: str,
+) -> RasCandidateJobRepository:
+    engine = create_database_engine(database_url)
+    Base.metadata.create_all(engine)
+    return RasCandidateJobRepository(session_factory=create_session_factory(engine))
+
+
 async def get_agent_repository(
     settings: SettingsDependency,
 ) -> SqlAlchemyAgentRepository | None:
@@ -212,6 +247,20 @@ async def get_ras_audit_repository(
 RasAuditRepositoryDependency = Annotated[
     SqlAlchemyRasAuditRepository | None,
     Depends(get_ras_audit_repository),
+]
+
+
+async def get_ras_candidate_job_repository(
+    settings: SettingsDependency,
+) -> RasCandidateJobRepository | None:
+    if not settings.database_url:
+        return None
+    return _get_ras_candidate_job_repository(settings.database_url)
+
+
+RasCandidateJobRepositoryDependency = Annotated[
+    RasCandidateJobRepository | None,
+    Depends(get_ras_candidate_job_repository),
 ]
 
 
@@ -526,16 +575,39 @@ async def get_agent_session_context(
 def _ras_audit_report_response(
     report: RasAuditReport,
     audit_id: str,
-    report_format: Literal["csv", "json"],
+    report_format: Literal["csv", "json", "xlsx", "pdf"],
+    *,
+    preview: bool = False,
 ) -> Response:
     generator = RasAuditReportGenerator()
+    content: str | bytes
     safe_audit_id = "".join(
         character if character.isalnum() or character in "-_" else "_"
         for character in audit_id.strip()
     )
     if report_format == "json":
-        content = generator.to_json(report)
+        content = (
+            json.dumps(
+                ras_report_business_payload(
+                    report,
+                    expose_document_references=True,
+                ),
+                ensure_ascii=False,
+                default=str,
+                sort_keys=True,
+            )
+            if preview
+            else generator.to_json(report)
+        )
         media_type = "application/json"
+    elif report_format == "xlsx":
+        content = render_ras_report_xlsx(report)
+        media_type = (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    elif report_format == "pdf":
+        content = render_ras_report_pdf(report)
+        media_type = "application/pdf"
     else:
         content = generator.to_csv(report)
         media_type = "text/csv"
@@ -543,8 +615,366 @@ def _ras_audit_report_response(
     return Response(
         content=content,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Audit-ID": audit_id,
+            "X-Report-Contract-Version": RAS_REPORT_CONTRACT_VERSION,
+            "X-Report-Max-Bytes": str(RAS_REPORT_EXPORT_MAX_BYTES),
+        },
     )
+
+
+def _result_audit_id(result: AgentRunResult) -> str | None:
+    for tool_result in reversed(result.tool_results):
+        if not tool_result.ok or tool_result.output is None:
+            continue
+        audit_id = tool_result.output.get("audit_id")
+        if isinstance(audit_id, str) and audit_id.strip():
+            return audit_id
+    return None
+
+
+def _ras_candidate_job_response(job: RasCandidateJob) -> RasCandidateJobResponse:
+    return RasCandidateJobResponse(
+        job_id=job.job_id,
+        audit_id=job.audit_id,
+        candidate_id=job.candidate_id,
+        state=job.state.value,
+        attempt_count=job.attempt_count,
+        result_audit_id=job.result_audit_id,
+        error_code=job.error_code,
+    )
+
+
+@router.delete(
+    "/conversations/{run_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={404: {"model": AgentErrorResponse}},
+)
+async def delete_agent_conversation(
+    run_id: str,
+    repository: AgentRepositoryDependency,
+) -> Response:
+    deleted = repository.delete_conversation(run_id) if repository else False
+    if not deleted:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/ras-audits/{audit_id}",
+    response_model=RasWorkflowStatusResponse,
+    responses={
+        404: {"model": AgentErrorResponse},
+        503: {"model": AgentErrorResponse},
+    },
+)
+async def get_ras_audit_workflow_status(
+    audit_id: str,
+    repository: RasAuditRepositoryDependency,
+    session_id: Annotated[str, Query(min_length=1)],
+    file_id: Annotated[str, Query(min_length=1)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> RasWorkflowStatusResponse | JSONResponse:
+    if repository is None:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="ras_audit_repository_unavailable",
+                public_message="La persistance des audits RAS est indisponible.",
+            ),
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    try:
+        workflow = RasAuditWorkflowService(repository).status(
+            audit_id=audit_id,
+            session_id=session_id,
+            file_id=file_id,
+            page=page,
+            page_size=page_size,
+        )
+    except RasWorkflowStatusError:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="ras_audit_not_found",
+                public_message="L'audit RAS demande est introuvable.",
+            ),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    return RasWorkflowStatusResponse(
+        audit_id=workflow.audit_id,
+        parent_audit_id=workflow.parent_audit_id,
+        status=workflow.status,
+        total_candidates=workflow.total_candidates,
+        page=workflow.page,
+        page_size=workflow.page_size,
+        report_available=workflow.report_available,
+        cases=[
+            RasWorkflowCaseResponse(
+                candidate_id=case.candidate_id,
+                state=case.state.value,
+                status=case.status,
+                missing_facts=list(case.missing_facts),
+            )
+            for case in workflow.cases
+        ],
+    )
+
+
+@router.post(
+    "/ras-audits/{audit_id}/candidates/process",
+    response_model=RasCandidateJobBatchResponse,
+    responses={
+        400: {"model": AgentErrorResponse},
+        503: {"model": AgentErrorResponse},
+    },
+)
+async def process_ras_audit_candidates(
+    audit_id: str,
+    request: RasCandidateJobBatchRequest,
+    orchestrator: AgentOrchestratorDependency,
+    file_resolver: AgentFileResolverDependency,
+    job_repository: RasCandidateJobRepositoryDependency,
+    audit_repository: RasAuditRepositoryDependency,
+) -> RasCandidateJobBatchResponse | JSONResponse:
+    if job_repository is None or audit_repository is None:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="ras_job_repository_unavailable",
+                public_message="La reprise des candidats RAS est indisponible.",
+            ),
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    if request.audit_id != audit_id or len(
+        {candidate.candidate_id for candidate in request.candidates}
+    ) != len(request.candidates):
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="invalid_ras_candidate_batch",
+                public_message="Le lot de candidats RAS est invalide.",
+            )
+        )
+    try:
+        file_path = file_resolver.resolve_file_path(
+            session_id=request.session_id,
+            file_id=request.file_id,
+            direct_file_path=None,
+        )
+        if file_path is None:
+            return _to_error_response(_file_missing_error())
+        messages = {
+            candidate.candidate_id: candidate.message
+            for candidate in request.candidates
+        }
+        jobs = tuple(
+            job_repository.enqueue(
+                audit_id=audit_id,
+                candidate_id=candidate.candidate_id,
+                session_id=request.session_id,
+                file_id=request.file_id,
+                input_token="\x1f".join(
+                    (
+                        request.session_id,
+                        request.file_id,
+                        request.sheet_name,
+                        candidate.message,
+                    )
+                ),
+            )
+            for candidate in request.candidates
+        )
+
+        def worker(job: RasCandidateJob) -> None:
+            claimed = job_repository.claim(job.job_id)
+            if claimed is None:
+                return
+            try:
+                result = orchestrator.run(
+                    AgentRunRequest(
+                        user_message=messages[job.candidate_id],
+                        file_path=file_path,
+                        sheet_name=request.sheet_name,
+                        allowed_tools=(
+                            "assess_ras_accounting",
+                            "generate_ras_audit_report",
+                        ),
+                        direct_tool_call=ToolCall(
+                            name="assess_ras_accounting",
+                            arguments={
+                                "base_audit_id": audit_id,
+                                "candidate_id": job.candidate_id,
+                            },
+                        ),
+                        session_id=request.session_id,
+                        file_id=request.file_id,
+                    )
+                )
+            except Exception:  # noqa: BLE001 - boundary sanitizes worker failures
+                job_repository.fail(
+                    job.job_id, error_code="ras_candidate_technical_failure"
+                )
+                return
+            failure = next(
+                (tool for tool in result.tool_results if not tool.ok), None
+            )
+            if failure is not None:
+                job_repository.fail(
+                    job.job_id,
+                    error_code=failure.error_code or "ras_candidate_job_failed",
+                )
+                return
+            result_audit_id = _result_audit_id(result)
+            if result_audit_id is None:
+                job_repository.fail(
+                    job.job_id, error_code="ras_candidate_result_missing"
+                )
+                return
+            job_repository.complete(
+                job.job_id, result_audit_id=result_audit_id
+            )
+
+        run_candidate_jobs(
+            jobs,
+            worker,
+            max_concurrency=request.max_concurrency,
+        )
+        refreshed_jobs = tuple(
+            job_repository.get(job.job_id) or job for job in jobs
+        )
+        completed_results = {
+            job.candidate_id: job.result_audit_id
+            for job in refreshed_jobs
+            if job.result_audit_id is not None
+        }
+        result_audit_id = None
+        if len(completed_results) == len(refreshed_jobs):
+            result_audit_id = RasAuditDerivationService(
+                audit_repository
+            ).merge_candidate_derivations(
+                base_audit_id=audit_id,
+                candidate_results=completed_results,
+                created_at=datetime.now(UTC),
+            )
+            PersistedRasAuditReportService(audit_repository).generate(
+                result_audit_id
+            )
+    except (AgentFileExpiredError, AgentFileMissingError):
+        return _to_error_response(_file_missing_error())
+    except ValueError:
+        return _to_error_response(_file_reference_error())
+    return RasCandidateJobBatchResponse(
+        jobs=[
+            _ras_candidate_job_response(job) for job in refreshed_jobs
+        ],
+        result_audit_id=result_audit_id,
+    )
+
+
+@router.delete(
+    "/ras-audits/{audit_id}/candidate-jobs/{job_id}",
+    response_model=RasCandidateJobResponse,
+    responses={
+        400: {"model": AgentErrorResponse},
+        404: {"model": AgentErrorResponse},
+        503: {"model": AgentErrorResponse},
+    },
+)
+async def cancel_ras_candidate_job(
+    audit_id: str,
+    job_id: str,
+    job_repository: RasCandidateJobRepositoryDependency,
+) -> RasCandidateJobResponse | JSONResponse:
+    if job_repository is None:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="ras_job_repository_unavailable",
+                public_message="La reprise des candidats RAS est indisponible.",
+            ),
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    job = job_repository.get(job_id)
+    if job is None or job.audit_id != audit_id:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="ras_candidate_job_not_found",
+                public_message="Le job candidat RAS est introuvable.",
+            ),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    try:
+        return _ras_candidate_job_response(job_repository.cancel(job_id))
+    except ValueError:
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="ras_candidate_job_not_cancellable",
+                public_message="Le job candidat RAS ne peut pas etre annule.",
+            )
+        )
+
+
+@router.post(
+    "/ras-audits/{audit_id}/candidates/{candidate_id}/assess",
+    response_model=AgentRunResponse,
+    responses={400: {"model": AgentErrorResponse}},
+)
+async def assess_ras_audit_candidate(
+    audit_id: str,
+    candidate_id: str,
+    request: RasCandidateAssessmentRequest,
+    orchestrator: AgentOrchestratorDependency,
+    file_resolver: AgentFileResolverDependency,
+) -> AgentRunResponse | JSONResponse:
+    try:
+        file_path = file_resolver.resolve_file_path(
+            session_id=request.session_id,
+            file_id=request.file_id,
+            direct_file_path=None,
+        )
+        if file_path is None:
+            return _to_error_response(_file_missing_error())
+        result = orchestrator.run(
+            AgentRunRequest(
+                user_message=request.message,
+                file_path=file_path,
+                sheet_name=request.sheet_name,
+                allowed_tools=(
+                    "assess_ras_accounting",
+                    "generate_ras_audit_report",
+                ),
+                direct_tool_call=ToolCall(
+                    name="assess_ras_accounting",
+                    arguments={
+                        "base_audit_id": audit_id,
+                        "candidate_id": candidate_id,
+                    },
+                ),
+                session_id=request.session_id,
+                file_id=request.file_id,
+            )
+        )
+    except AgentFileExpiredError:
+        return _to_error_response(_file_expired_error())
+    except AgentFileMissingError:
+        return _to_error_response(_file_missing_error())
+    except ValueError:
+        return _to_error_response(_file_reference_error())
+    if any(not tool_result.ok for tool_result in result.tool_results):
+        return _to_error_response(
+            AgentEndpointError(
+                public_code=(
+                    next(
+                        (
+                            tool_result.error_code
+                            for tool_result in result.tool_results
+                            if not tool_result.ok and tool_result.error_code
+                        ),
+                        "ras_candidate_assessment_failed",
+                    )
+                ),
+                public_message="Le candidat RAS n'a pas pu etre evalue.",
+            )
+        )
+    return _to_agent_run_response(result)
 
 
 @router.get(
@@ -558,7 +988,12 @@ def _ras_audit_report_response(
 async def download_ras_audit_report(
     audit_id: str,
     repository: RasAuditRepositoryDependency,
-    report_format: Annotated[Literal["csv", "json"], Query(alias="format")] = "csv",
+    session_id: Annotated[str, Query(min_length=1)],
+    file_id: Annotated[str, Query(min_length=1)],
+    report_format: Annotated[
+        Literal["csv", "json", "xlsx", "pdf"], Query(alias="format")
+    ] = "csv",
+    preview: bool = False,
 ) -> Response | JSONResponse:
     if repository is None:
         return _to_error_response(
@@ -567,6 +1002,19 @@ async def download_ras_audit_report(
                 public_message="La persistance des audits RAS est indisponible.",
             ),
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    snapshot = repository.get(audit_id)
+    if (
+        snapshot is None
+        or snapshot.session_id != session_id
+        or snapshot.file_id != file_id
+    ):
+        return _to_error_response(
+            AgentEndpointError(
+                public_code="ras_audit_report_not_found",
+                public_message="Le rapport d'audit RAS demande est introuvable.",
+            ),
+            status_code=status.HTTP_404_NOT_FOUND,
         )
     try:
         report = PersistedRasAuditReportService(repository).generate(audit_id)
@@ -578,7 +1026,12 @@ async def download_ras_audit_report(
             ),
             status_code=status.HTTP_404_NOT_FOUND,
         )
-    return _ras_audit_report_response(report, audit_id, report_format)
+    return _ras_audit_report_response(
+        report,
+        audit_id,
+        report_format,
+        preview=preview and report_format == "json",
+    )
 
 
 @router.post(
@@ -595,7 +1048,10 @@ async def run_and_download_ras_audit_report(
     settings: SettingsDependency,
     repository: AgentRepositoryDependency,
     ras_audit_repository: RasAuditRepositoryDependency,
-    report_format: Annotated[Literal["csv", "json"], Query(alias="format")] = "csv",
+    report_format: Annotated[
+        Literal["csv", "json", "xlsx", "pdf"], Query(alias="format")
+    ] = "csv",
+    preview: bool = False,
 ) -> Response | JSONResponse:
     if repository is None or ras_audit_repository is None:
         return _to_error_response(
@@ -687,7 +1143,14 @@ async def run_and_download_ras_audit_report(
             ),
             status_code=status.HTTP_404_NOT_FOUND,
         )
-    return _ras_audit_report_response(report, audit_id, report_format)
+    response = _ras_audit_report_response(
+        report,
+        audit_id,
+        report_format,
+        preview=preview and report_format == "json",
+    )
+    response.headers["X-File-ID"] = active_file.file_id
+    return response
 
 
 @router.post(

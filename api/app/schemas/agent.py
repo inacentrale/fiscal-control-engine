@@ -146,6 +146,60 @@ class AgentSessionContextResponse(BaseModel):
     last_agent_events: list[AgentSessionContextEventResponse]
 
 
+class RasWorkflowCaseResponse(BaseModel):
+    candidate_id: str
+    state: str
+    status: str
+    missing_facts: list[str]
+
+
+class RasWorkflowStatusResponse(BaseModel):
+    audit_id: str
+    parent_audit_id: str | None
+    status: str
+    total_candidates: int
+    page: int
+    page_size: int
+    report_available: bool
+    cases: list[RasWorkflowCaseResponse]
+
+
+class RasCandidateAssessmentRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4_000)
+    session_id: str = Field(min_length=1)
+    file_id: str = Field(min_length=1)
+    sheet_name: str = Field(min_length=1)
+
+
+class RasCandidateJobRequest(BaseModel):
+    candidate_id: str = Field(min_length=1, max_length=128)
+    message: str = Field(min_length=1, max_length=4_000)
+
+
+class RasCandidateJobBatchRequest(BaseModel):
+    audit_id: str = Field(min_length=1, max_length=64)
+    session_id: str = Field(min_length=1, max_length=64)
+    file_id: str = Field(min_length=1, max_length=64)
+    sheet_name: str = Field(min_length=1, max_length=128)
+    candidates: list[RasCandidateJobRequest] = Field(min_length=1, max_length=100)
+    max_concurrency: int = Field(default=2, ge=1, le=4)
+
+
+class RasCandidateJobResponse(BaseModel):
+    job_id: str
+    audit_id: str
+    candidate_id: str
+    state: str
+    attempt_count: int
+    result_audit_id: str | None = None
+    error_code: str | None = None
+
+
+class RasCandidateJobBatchResponse(BaseModel):
+    jobs: list[RasCandidateJobResponse]
+    result_audit_id: str | None = None
+
+
 class AgentErrorDetail(BaseModel):
     code: str
     message: str

@@ -18,7 +18,7 @@ type AISidebarProfileProps = {
 export default function AISidebarProfile({ className }: AISidebarProfileProps) {
   const [isOpen, setIsOpen] = useState(false);
   const name = "Nadia Kaboré";
-  const role = "Analyste fiscale";
+  const role = "Responsable Financier";
 
   return (
     <div className={cn("relative", className)}>

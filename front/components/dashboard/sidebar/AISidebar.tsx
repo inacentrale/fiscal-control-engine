@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   agentSidebarQueryKeys,
+  deleteAgentConversation,
   listAgentConversations,
   listAgentFiles,
 } from "@/api/agent/sidebar";
@@ -20,6 +21,7 @@ import AISidebarProfile from "./AISidebarProfile";
 import type { SidebarConversation, SidebarFile } from "./aiSidebarData";
 
 export default function AISidebar() {
+  const queryClient = useQueryClient();
   const [isRecentExpanded, setIsRecentExpanded] = useState(false);
   const [modalMode, setModalMode] = useState<AISidebarModalMode | null>(null);
   const activeRunId = useAgentWorkspaceStore((state) => state.activeRunId);
@@ -27,6 +29,15 @@ export default function AISidebar() {
     (state) => state.selectConversation
   );
   const startNewChat = useAgentWorkspaceStore((state) => state.startNewChat);
+  const deleteConversationMutation = useMutation({
+    mutationFn: deleteAgentConversation,
+    onSuccess: (_, deletedRunId) => {
+      if (deletedRunId === activeRunId) startNewChat();
+      void queryClient.invalidateQueries({
+        queryKey: agentSidebarQueryKeys.conversations,
+      });
+    },
+  });
   const conversationsQuery = useQuery({
     queryKey: agentSidebarQueryKeys.conversations,
     queryFn: () => listAgentConversations(20),
@@ -107,6 +118,19 @@ export default function AISidebar() {
                         sessionId: selectedConversation.sessionId,
                         fileId: selectedConversation.fileId,
                       })
+                    }
+                    onDelete={(selectedConversation) => {
+                      if (
+                        window.confirm(
+                          `Supprimer la discussion « ${selectedConversation.title} » ? Cette action est irréversible.`,
+                        )
+                      ) {
+                        deleteConversationMutation.mutate(selectedConversation.id);
+                      }
+                    }}
+                    isDeleting={
+                      deleteConversationMutation.isPending &&
+                      deleteConversationMutation.variables === conversation.id
                     }
                   />
                 ))}

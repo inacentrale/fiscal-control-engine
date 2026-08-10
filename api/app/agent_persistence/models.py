@@ -242,3 +242,32 @@ class RasAuditEventModel(Base):
         DateTime(timezone=True),
         nullable=False,
     )
+
+
+class RasAuditCandidateJobModel(Base):
+    __tablename__ = "ras_audit_candidate_jobs"
+    __table_args__ = (
+        UniqueConstraint(
+            "audit_id",
+            "candidate_id",
+            "input_digest",
+            name="uq_ras_candidate_job_input",
+        ),
+    )
+
+    job_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    audit_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("ras_audit_runs.audit_id"), nullable=False, index=True
+    )
+    candidate_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    input_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    state: Mapped[str] = mapped_column(String(24), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    result_audit_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )

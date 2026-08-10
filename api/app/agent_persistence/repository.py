@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import delete, desc, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.agent.orchestrator import AgentRunResult
@@ -328,6 +328,40 @@ class SqlAlchemyAgentRepository:
                     for message in messages
                 ),
             )
+
+    def delete_conversation(self, run_id: str) -> bool:
+        with self._session_factory() as session:
+            selected_run = session.get(AgentRunModel, run_id)
+            if selected_run is None:
+                return False
+            run_ids = [selected_run.run_id]
+            if selected_run.session_id is not None:
+                run_ids = list(
+                    session.scalars(
+                        select(AgentRunModel.run_id).where(
+                            AgentRunModel.session_id == selected_run.session_id,
+                        ),
+                    ).all(),
+                )
+            session.execute(
+                update(RasAuditRunModel)
+                .where(RasAuditRunModel.agent_run_id.in_(run_ids))
+                .values(agent_run_id=None),
+            )
+            session.execute(
+                delete(AgentToolResultModel).where(
+                    AgentToolResultModel.run_id.in_(run_ids),
+                ),
+            )
+            session.execute(
+                delete(AgentRunEventModel).where(AgentRunEventModel.run_id.in_(run_ids)),
+            )
+            session.execute(
+                delete(AgentMessageModel).where(AgentMessageModel.run_id.in_(run_ids)),
+            )
+            session.execute(delete(AgentRunModel).where(AgentRunModel.run_id.in_(run_ids)))
+            session.commit()
+            return True
 
     def get_active_file(self, session_id: str) -> AgentFileSummary | None:
         with self._session_factory() as session:

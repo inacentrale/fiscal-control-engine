@@ -1,10 +1,16 @@
 import asyncio
 import json
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import httpx
+from openpyxl import load_workbook
+from pydantic import SecretStr
+from pypdf import PdfReader
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 
 from app.agent.orchestrator import (
     AgentOrchestrator,
@@ -27,6 +33,8 @@ from app.excel_agent.tool_executor import ExcelToolExecutor
 from app.excel_agent.tool_registry import create_excel_tool_registry
 from app.llm.domain import ModelRequest, ModelResponse, ToolCall
 from app.main import create_app
+from app.ras_audit.jobs import RasCandidateJobRepository
+from app.ras_audit.persisted_report import PersistedRasAuditReportService
 from app.ras_audit.persistence import (
     RasAuditCaseSnapshot,
     RasAuditSnapshot,
@@ -40,24 +48,29 @@ from app.routers.agent import (
     get_agent_orchestrator,
     get_agent_repository,
     get_api_settings,
+    get_ras_audit_repository,
+    get_ras_candidate_job_repository,
 )
 
 
 def test_ras_tools_are_enabled_only_when_server_references_are_configured() -> None:
-    unconfigured = Settings(
-        _env_file=None,
-        ras_fact_context_signing_key=None,
-        ras_ledger_account_mapping_path=None,
+    unconfigured = Settings.model_validate(
+        {
+            "ras_fact_context_signing_key": None,
+            "ras_ledger_account_mapping_path": None,
+        }
     )
-    attested = Settings(
-        _env_file=None,
-        ras_fact_context_signing_key="k" * 32,
-        ras_ledger_account_mapping_path=None,
+    attested = Settings.model_validate(
+        {
+            "ras_fact_context_signing_key": "k" * 32,
+            "ras_ledger_account_mapping_path": None,
+        }
     )
-    fully_configured = Settings(
-        _env_file=None,
-        ras_fact_context_signing_key="k" * 32,
-        ras_ledger_account_mapping_path="mapping.csv",
+    fully_configured = Settings.model_validate(
+        {
+            "ras_fact_context_signing_key": "k" * 32,
+            "ras_ledger_account_mapping_path": "mapping.csv",
+        }
     )
 
     assert "resolve_applicable_ras_rule" not in _effective_allowed_tools(
@@ -392,6 +405,14 @@ def test_agent_sidebar_endpoints_return_persisted_runs_and_files(
     assert files_response.json()["items"][0]["original_filename"] == "grand_livre.xlsx"
     assert files_response.json()["items"][0]["sheet_names"] == ["Grand Livre"]
 
+    delete_response = _delete(app, f"/api/agent/conversations/{run_id}")
+    conversations_after_delete = _get(app, "/api/agent/conversations")
+    files_after_delete = _get(app, "/api/agent/files")
+
+    assert delete_response.status_code == 204
+    assert conversations_after_delete.json()["items"] == []
+    assert len(files_after_delete.json()["items"]) == 1
+
 
 def test_agent_session_context_returns_empty_state_without_active_file() -> None:
     app = create_app()
@@ -524,17 +545,28 @@ def test_agent_session_context_returns_rich_dashboard_charts(tmp_path: Path) -> 
     assert tax_chart["metadata"]["decision_status"] == "review_required"
 
 
-def test_ras_audit_report_can_be_downloaded_as_csv_and_json(tmp_path: Path) -> None:
+def test_ras_audit_report_can_be_downloaded_as_csv_and_json() -> None:
     app = create_app()
-    database_url = f"sqlite:///{tmp_path / 'ras_audit.db'}"
-    _seed_ras_audit(database_url, audit_id="audit-download-1")
+    engine = create_database_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    repository = SqlAlchemyRasAuditRepository(create_session_factory(engine))
+    _seed_ras_audit_repository(
+        repository,
+        audit_id="audit-download-1",
+        session_id="session-1",
+        file_id="file-1",
+    )
 
-    async def override_settings() -> Settings:
-        return Settings(database_url=database_url)
+    async def override_repository() -> SqlAlchemyRasAuditRepository:
+        return repository
 
-    app.dependency_overrides[get_api_settings] = override_settings
+    app.dependency_overrides[get_ras_audit_repository] = override_repository
 
-    csv_response = _get(app, "/api/agent/ras-audits/audit-download-1/report")
+    csv_response = _get(
+        app,
+        "/api/agent/ras-audits/audit-download-1/report"
+        "?session_id=session-1&file_id=file-1",
+    )
 
     assert csv_response.status_code == 200
     assert csv_response.headers["content-type"].startswith("text/csv")
@@ -542,36 +574,368 @@ def test_ras_audit_report_can_be_downloaded_as_csv_and_json(tmp_path: Path) -> N
         csv_response.headers["content-disposition"]
         == 'attachment; filename="rapport-audit-ras-audit-download-1.csv"'
     )
-    assert "entry-1" in csv_response.text
+    assert "entry-1" not in csv_response.text
+    assert "RAS théorique" in csv_response.text
+    assert csv_response.headers["x-audit-id"] == "audit-download-1"
 
     json_response = _get(
         app,
-        "/api/agent/ras-audits/audit-download-1/report?format=json",
+        "/api/agent/ras-audits/audit-download-1/report"
+        "?format=json&session_id=session-1&file_id=file-1",
     )
 
     assert json_response.status_code == 200
     assert json_response.headers["content-type"].startswith("application/json")
     payload = json.loads(json_response.text)
-    assert payload["case_count"] == 1
-    assert payload["details"][0]["candidate_id"] == "entry-1"
+    assert payload["summary"]["case_count"] == 1
+    assert "candidate_id" not in json_response.text
+    assert "rule_id" not in json_response.text
+    xlsx_response = _get(
+        app,
+        "/api/agent/ras-audits/audit-download-1/report"
+        "?format=xlsx&session_id=session-1&file_id=file-1",
+    )
+    assert xlsx_response.status_code == 200
+    assert xlsx_response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert xlsx_response.headers["x-report-contract-version"] == "2.0.0"
+    assert int(xlsx_response.headers["x-report-max-bytes"]) == 20 * 1024 * 1024
+    assert load_workbook(BytesIO(xlsx_response.content)).sheetnames[0] == "Synthese"
+    pdf_response = _get(
+        app,
+        "/api/agent/ras-audits/audit-download-1/report"
+        "?format=pdf&session_id=session-1&file_id=file-1",
+    )
+    assert pdf_response.status_code == 200
+    assert pdf_response.headers["content-type"].startswith("application/pdf")
+    assert len(PdfReader(BytesIO(pdf_response.content)).pages) >= 1
+    denied = _get(
+        app,
+        "/api/agent/ras-audits/audit-download-1/report"
+        "?session_id=other&file_id=file-1",
+    )
+    assert denied.status_code == 404
 
 
-def test_ras_audit_report_download_returns_404_for_unknown_audit(
-    tmp_path: Path,
-) -> None:
+def test_ras_audit_report_download_returns_404_for_unknown_audit() -> None:
     app = create_app()
-    database_url = f"sqlite:///{tmp_path / 'ras_audit.db'}"
-    _seed_ras_audit(database_url, audit_id="audit-download-1")
+    engine = create_database_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    repository = SqlAlchemyRasAuditRepository(create_session_factory(engine))
+    _seed_ras_audit_repository(repository, audit_id="audit-download-1")
 
-    async def override_settings() -> Settings:
-        return Settings(database_url=database_url)
+    async def override_repository() -> SqlAlchemyRasAuditRepository:
+        return repository
 
-    app.dependency_overrides[get_api_settings] = override_settings
+    app.dependency_overrides[get_ras_audit_repository] = override_repository
 
-    response = _get(app, "/api/agent/ras-audits/unknown-audit/report")
+    response = _get(
+        app,
+        "/api/agent/ras-audits/unknown-audit/report"
+        "?session_id=session-1&file_id=file-1",
+    )
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "ras_audit_report_not_found"
+
+
+def test_ras_audit_workflow_status_is_scoped_and_paginated() -> None:
+    app = create_app()
+    engine = create_database_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    repository = SqlAlchemyRasAuditRepository(create_session_factory(engine))
+    _seed_ras_audit_repository(
+        repository,
+        audit_id="audit-status-1",
+        session_id="session-1",
+        file_id="file-1",
+    )
+    async def override_repository() -> SqlAlchemyRasAuditRepository:
+        return repository
+
+    app.dependency_overrides[get_ras_audit_repository] = override_repository
+
+    response = _get(
+        app,
+        "/api/agent/ras-audits/audit-status-1"
+        "?session_id=session-1&file_id=file-1&page=1&page_size=1",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["audit_id"] == "audit-status-1"
+    assert payload["total_candidates"] == 1
+    assert payload["cases"] == [
+        {
+            "candidate_id": "entry-1",
+            "state": "counterpart_assessed",
+            "status": "provisional_reconciled",
+            "missing_facts": [],
+        }
+    ]
+
+    denied = _get(
+        app,
+        "/api/agent/ras-audits/audit-status-1"
+        "?session_id=other&file_id=file-1",
+    )
+    assert denied.status_code == 404
+    assert denied.json()["error"]["code"] == "ras_audit_not_found"
+
+
+def test_candidate_assessment_endpoint_uses_scoped_deterministic_workflow() -> None:
+    app = create_app()
+    orchestrator = FakeAgentOrchestrator(
+        AgentRunResult(
+            answer="Evaluation et rapport disponibles.",
+            provider_name="internal",
+            model_name="direct-tool-call",
+            execution_events=(),
+            tool_results=(
+                ToolExecutionResult(
+                    tool_name="assess_ras_accounting",
+                    ok=True,
+                    output={"audit_id": "audit-derived"},
+                ),
+                ToolExecutionResult(
+                    tool_name="generate_ras_audit_report",
+                    ok=True,
+                    output={"audit_id": "audit-derived", "report_id": "report-1"},
+                ),
+            ),
+        )
+    )
+
+    async def override_orchestrator() -> FakeAgentOrchestrator:
+        return orchestrator
+
+    async def override_resolver() -> FakeAgentFileResolver:
+        return FakeAgentFileResolver(Path("ledger.xlsx"))
+
+    app.dependency_overrides[get_agent_orchestrator] = override_orchestrator
+    app.dependency_overrides[get_agent_file_resolver] = override_resolver
+
+    response = _post(
+        app,
+        "/api/agent/ras-audits/audit-1/candidates/candidate-1/assess",
+        json={
+            "message": "Le prestataire est resident et possede un IFU.",
+            "session_id": "session-1",
+            "file_id": "file-1",
+            "sheet_name": "GL",
+        },
+    )
+
+    assert response.status_code == 200
+    assert orchestrator.last_request is not None
+    assert orchestrator.last_request.direct_tool_call == ToolCall(
+        name="assess_ras_accounting",
+        arguments={
+            "base_audit_id": "audit-1",
+            "candidate_id": "candidate-1",
+        },
+    )
+    assert orchestrator.last_request.session_id == "session-1"
+    assert orchestrator.last_request.file_id == "file-1"
+    assert [item["tool_name"] for item in response.json()["tool_results"]] == [
+        "assess_ras_accounting",
+        "generate_ras_audit_report",
+    ]
+
+
+def test_candidate_batch_jobs_are_bounded_persisted_and_idempotent() -> None:
+    app = create_app()
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session_factory = create_session_factory(engine)
+    audit_repository = SqlAlchemyRasAuditRepository(session_factory)
+    base_cases = (_ras_audit_case("entry-1"), _ras_audit_case("entry-2"))
+    audit_repository.save(
+        RasAuditSnapshot(
+            audit_id="audit-jobs-1",
+            session_id="session-1",
+            file_id="file-1",
+            source_sha256="a" * 64,
+            status="pending",
+            reference_versions=("legal-v1",),
+            fact_context={},
+            cases=base_cases,
+            created_at=datetime(2026, 8, 10, tzinfo=UTC),
+        )
+    )
+    for index in (1, 2):
+        audit_repository.save(
+            RasAuditSnapshot(
+                audit_id=f"audit-derived-{index}",
+                parent_audit_id="audit-jobs-1",
+                session_id="session-1",
+                file_id="file-1",
+                source_sha256="a" * 64,
+                status="partially_assessed_provisional",
+                reference_versions=(f"ras-rules-v{index}",),
+                fact_context={"attestation_id": f"opaque-{index}"},
+                cases=tuple(
+                    _ras_audit_case(
+                        case.candidate_id,
+                        difference=str(index)
+                        if case.candidate_id == f"entry-{index}"
+                        else "0",
+                    )
+                    for case in base_cases
+                ),
+                created_at=datetime(2026, 8, 10, tzinfo=UTC),
+            )
+        )
+    job_repository = RasCandidateJobRepository(session_factory)
+    orchestrator = CandidateResultOrchestrator()
+
+    async def override_jobs() -> RasCandidateJobRepository:
+        return job_repository
+
+    async def override_orchestrator() -> CandidateResultOrchestrator:
+        return orchestrator
+
+    async def override_resolver() -> FakeAgentFileResolver:
+        return FakeAgentFileResolver(Path("ledger.xlsx"))
+
+    app.dependency_overrides[get_ras_candidate_job_repository] = override_jobs
+    app.dependency_overrides[get_ras_audit_repository] = (
+        lambda: audit_repository
+    )
+    app.dependency_overrides[get_agent_orchestrator] = override_orchestrator
+    app.dependency_overrides[get_agent_file_resolver] = override_resolver
+    payload = {
+        "audit_id": "audit-jobs-1",
+        "session_id": "session-1",
+        "file_id": "file-1",
+        "sheet_name": "GL",
+        "max_concurrency": 1,
+        "candidates": [
+            {
+                "candidate_id": "entry-1",
+                "message": "Le prestataire est resident et possede un IFU.",
+            },
+            {
+                "candidate_id": "entry-2",
+                "message": "Le second prestataire est non resident.",
+            },
+        ],
+    }
+
+    first = _post(
+        app,
+        "/api/agent/ras-audits/audit-jobs-1/candidates/process",
+        json=payload,
+    )
+    retry = _post(
+        app,
+        "/api/agent/ras-audits/audit-jobs-1/candidates/process",
+        json=payload,
+    )
+
+    assert first.status_code == 200
+    assert [job["state"] for job in first.json()["jobs"]] == [
+        "completed",
+        "completed",
+    ]
+    assert [job["attempt_count"] for job in first.json()["jobs"]] == [1, 1]
+    result_audit_id = first.json()["result_audit_id"]
+    assert result_audit_id is not None
+    merged = audit_repository.get(result_audit_id)
+    assert merged is not None
+    assert [case.payload["difference"] for case in merged.cases] == ["1", "2"]
+    assert set(merged.reference_versions) == {
+        "legal-v1",
+        "ras-rules-v1",
+        "ras-rules-v2",
+    }
+    assert retry.status_code == 200
+    assert retry.json()["jobs"] == first.json()["jobs"]
+    assert retry.json()["result_audit_id"] == result_audit_id
+    report_service = PersistedRasAuditReportService(audit_repository)
+    assert report_service.generate(result_audit_id) == report_service.generate(
+        retry.json()["result_audit_id"]
+    )
+
+
+def test_candidate_batch_resumes_after_partial_technical_failure() -> None:
+    app, audit_repository = _candidate_job_test_app(
+        PartialFailureCandidateOrchestrator()
+    )
+    payload = {
+        "audit_id": "audit-jobs-1",
+        "session_id": "session-1",
+        "file_id": "file-1",
+        "sheet_name": "GL",
+        "max_concurrency": 1,
+        "candidates": [
+            {"candidate_id": "entry-1", "message": "Faits candidat un."},
+            {"candidate_id": "entry-2", "message": "Faits candidat deux."},
+        ],
+    }
+
+    partial = _post(
+        app,
+        "/api/agent/ras-audits/audit-jobs-1/candidates/process",
+        json=payload,
+    )
+    resumed = _post(
+        app,
+        "/api/agent/ras-audits/audit-jobs-1/candidates/process",
+        json=payload,
+    )
+
+    assert partial.status_code == 200
+    assert [job["state"] for job in partial.json()["jobs"]] == [
+        "completed",
+        "failed",
+    ]
+    assert partial.json()["result_audit_id"] is None
+    assert resumed.status_code == 200
+    assert [job["state"] for job in resumed.json()["jobs"]] == [
+        "completed",
+        "completed",
+    ]
+    assert [job["attempt_count"] for job in resumed.json()["jobs"]] == [1, 2]
+    merged_id = resumed.json()["result_audit_id"]
+    assert merged_id is not None
+    assert any(
+        event.event_type == "report_generated"
+        for event in audit_repository.list_events(merged_id)
+    )
+
+
+def test_failed_candidate_job_can_be_cancelled_without_fiscal_conclusion() -> None:
+    app, _ = _candidate_job_test_app(PartialFailureCandidateOrchestrator())
+    partial = _post(
+        app,
+        "/api/agent/ras-audits/audit-jobs-1/candidates/process",
+        json={
+            "audit_id": "audit-jobs-1",
+            "session_id": "session-1",
+            "file_id": "file-1",
+            "sheet_name": "GL",
+            "max_concurrency": 1,
+            "candidates": [
+                {"candidate_id": "entry-2", "message": "Faits candidat deux."}
+            ],
+        },
+    )
+    job = partial.json()["jobs"][0]
+
+    cancelled = _delete(
+        app,
+        f"/api/agent/ras-audits/audit-jobs-1/candidate-jobs/{job['job_id']}",
+    )
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["state"] == "cancelled"
+    assert cancelled.json()["result_audit_id"] is None
 
 
 def test_run_and_download_ras_audit_report_requires_active_file(
@@ -583,7 +947,7 @@ def test_run_and_download_ras_audit_report_requires_active_file(
     async def override_settings() -> Settings:
         return Settings(
             database_url=database_url,
-            ras_fact_context_signing_key="k" * 32,
+            ras_fact_context_signing_key=SecretStr("k" * 32),
         )
 
     app.dependency_overrides[get_api_settings] = override_settings
@@ -606,13 +970,14 @@ def test_run_and_download_ras_audit_report_requires_fact_context_signing_key(
     database_url = f"sqlite:///{tmp_path / 'ras_audit.db'}"
 
     async def override_settings() -> Settings:
-        return Settings(
-            _env_file=None,
-            agent_file_storage_root_path=str(tmp_path / "sessions"),
-            excel_agent_allowed_root_path=str(source_path.parent),
-            agent_file_max_upload_bytes=1_000_000,
-            database_url=database_url,
-            ras_fact_context_signing_key=None,
+        return Settings.model_validate(
+            {
+                "agent_file_storage_root_path": str(tmp_path / "sessions"),
+                "excel_agent_allowed_root_path": str(source_path.parent),
+                "agent_file_max_upload_bytes": 1_000_000,
+                "database_url": database_url,
+                "ras_fact_context_signing_key": None,
+            }
         )
 
     app.dependency_overrides[get_api_settings] = override_settings
@@ -680,13 +1045,36 @@ def test_run_and_download_ras_audit_report_succeeds_end_to_end(
     assert response.headers["content-disposition"].startswith(
         'attachment; filename="rapport-audit-ras-'
     )
-    assert "candidate_id" in response.text
+    assert "candidate_id" not in response.text
+    assert "Pièce" in response.text
+    assert response.headers["x-file-id"] == upload_response.json()["file_id"]
 
 
-def _seed_ras_audit(database_url: str, *, audit_id: str) -> None:
+def _seed_ras_audit(
+    database_url: str,
+    *,
+    audit_id: str,
+    session_id: str | None = None,
+    file_id: str | None = None,
+) -> None:
     engine = create_database_engine(database_url)
     Base.metadata.create_all(engine)
     repository = SqlAlchemyRasAuditRepository(create_session_factory(engine))
+    _seed_ras_audit_repository(
+        repository,
+        audit_id=audit_id,
+        session_id=session_id,
+        file_id=file_id,
+    )
+
+
+def _seed_ras_audit_repository(
+    repository: SqlAlchemyRasAuditRepository,
+    *,
+    audit_id: str,
+    session_id: str | None = None,
+    file_id: str | None = None,
+) -> None:
     repository.save(
         RasAuditSnapshot(
             audit_id=audit_id,
@@ -694,30 +1082,39 @@ def _seed_ras_audit(database_url: str, *, audit_id: str) -> None:
             status="completed_provisional",
             reference_versions=("legal-v1",),
             fact_context={"message_sha256": "b" * 64},
-            cases=(
-                RasAuditCaseSnapshot(
-                    candidate_id="entry-1",
-                    status="provisional_reconciled",
-                    certainty="supported_provisional",
-                    payload={
-                        "candidate_id": "entry-1",
-                        "status": "provisional_reconciled",
-                        "certainty": "supported_provisional",
-                        "rule_id": "resident-standard",
-                        "rule_version": "legal-v1",
-                        "expected_amount": "5000",
-                        "recorded_amount": "5000",
-                        "difference": "0",
-                        "currency": "XOF",
-                        "missing_facts": [],
-                        "issues": [],
-                        "legal_source_locators": ["CGI:article"],
-                        "basis_is_complete": True,
-                    },
-                ),
-            ),
+            cases=(_ras_audit_case("entry-1"),),
             created_at=datetime(2026, 8, 4, tzinfo=UTC),
+            session_id=session_id,
+            file_id=file_id,
         ),
+    )
+
+
+def _ras_audit_case(
+    candidate_id: str,
+    *,
+    difference: str = "0",
+) -> RasAuditCaseSnapshot:
+    return RasAuditCaseSnapshot(
+        candidate_id=candidate_id,
+        status="provisional_reconciled",
+        certainty="supported_provisional",
+        payload={
+            "candidate_id": candidate_id,
+            "status": "provisional_reconciled",
+            "certainty": "supported_provisional",
+            "rule_id": "resident-standard",
+            "rule_version": "legal-v1",
+            "expected_amount": "5000",
+            "recorded_amount": str(5000 - int(difference)),
+            "difference": difference,
+            "currency": "XOF",
+            "missing_facts": [],
+            "issues": [],
+            "legal_source_locators": ["CGI:article"],
+            "basis_is_complete": True,
+            "workflow_state": "counterpart_assessed",
+        },
     )
 
 
@@ -816,7 +1213,7 @@ def test_agent_upload_then_run_executes_ledger_analysis_tool(
         app,
         "/api/agent/runs",
         json={
-            "message": "Analyse ce Grand Livre.",
+            "message": "Inspecte le document joint.",
             "session_id": upload_payload["session_id"],
             "file_id": upload_payload["file_id"],
         },
@@ -1128,6 +1525,62 @@ class FakeAgentOrchestrator:
         return self._result
 
 
+class CandidateResultOrchestrator:
+    def run(
+        self,
+        request: AgentRunRequest,
+        event_sink: Any | None = None,
+    ) -> AgentRunResult:
+        assert request.direct_tool_call is not None
+        candidate_id = request.direct_tool_call.arguments["candidate_id"]
+        assert isinstance(candidate_id, str)
+        derived_id = f"audit-derived-{candidate_id.removeprefix('entry-')}"
+        return AgentRunResult(
+            answer="Evaluation terminee.",
+            provider_name="internal",
+            model_name="direct-tool-call",
+            execution_events=(),
+            tool_results=(
+                ToolExecutionResult(
+                    tool_name="assess_ras_accounting",
+                    ok=True,
+                    output={"audit_id": derived_id},
+                ),
+            ),
+        )
+
+
+class PartialFailureCandidateOrchestrator(CandidateResultOrchestrator):
+    def __init__(self) -> None:
+        self._failed_once = False
+
+    def run(
+        self,
+        request: AgentRunRequest,
+        event_sink: Any | None = None,
+    ) -> AgentRunResult:
+        assert request.direct_tool_call is not None
+        candidate_id = request.direct_tool_call.arguments["candidate_id"]
+        if candidate_id == "entry-2" and not self._failed_once:
+            self._failed_once = True
+            return AgentRunResult(
+                answer="Echec technique temporaire.",
+                provider_name="internal",
+                model_name="direct-tool-call",
+                execution_events=(),
+                tool_results=(
+                    ToolExecutionResult(
+                        tool_name="assess_ras_accounting",
+                        ok=False,
+                        output={},
+                        error_code="temporary_storage_failure",
+                        error_message="temporary failure",
+                    ),
+                ),
+            )
+        return super().run(request, event_sink)
+
+
 class FailingAgentOrchestrator:
     def __init__(self, error: Exception) -> None:
         self._error = error
@@ -1203,7 +1656,6 @@ class LedgerAnalysisToolCallingModel:
     def generate(self, request: ModelRequest) -> ModelResponse:
         self.calls += 1
         if self.calls == 1:
-            target_path = _extract_target_path(request)
             return ModelResponse(
                 text="",
                 provider_name="fake",
@@ -1212,10 +1664,7 @@ class LedgerAnalysisToolCallingModel:
                 tool_calls=(
                     ToolCall(
                         name="analyze_ledger",
-                        arguments={
-                            "file_path": str(target_path),
-                            "sheet_name": "Grand Livre",
-                        },
+                        arguments={"sheet_name": "Grand Livre"},
                     ),
                 ),
             )
@@ -1227,14 +1676,6 @@ class LedgerAnalysisToolCallingModel:
             tool_calls=(),
         )
 
-
-def _extract_target_path(request: ModelRequest) -> Path:
-    for message in request.messages:
-        if message.content.startswith("Fichier cible: "):
-            return Path(message.content.removeprefix("Fichier cible: "))
-    raise AssertionError("target file path is required")
-
-
 def _reference_excel_path() -> Path:
     for candidate in (
         Path("/workspace/docs/GL_anonymise_2500.xlsx"),
@@ -1245,12 +1686,83 @@ def _reference_excel_path() -> Path:
     raise AssertionError("reference anonymized Excel file is required")
 
 
+def _candidate_job_test_app(
+    orchestrator: Any,
+) -> tuple[Any, SqlAlchemyRasAuditRepository]:
+    app = create_app()
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session_factory = create_session_factory(engine)
+    audit_repository = SqlAlchemyRasAuditRepository(session_factory)
+    base_cases = (_ras_audit_case("entry-1"), _ras_audit_case("entry-2"))
+    audit_repository.save(
+        RasAuditSnapshot(
+            audit_id="audit-jobs-1",
+            session_id="session-1",
+            file_id="file-1",
+            source_sha256="a" * 64,
+            status="pending",
+            reference_versions=("legal-v1",),
+            fact_context={},
+            cases=base_cases,
+            created_at=datetime(2026, 8, 10, tzinfo=UTC),
+        )
+    )
+    for index in (1, 2):
+        audit_repository.save(
+            RasAuditSnapshot(
+                audit_id=f"audit-derived-{index}",
+                parent_audit_id="audit-jobs-1",
+                session_id="session-1",
+                file_id="file-1",
+                source_sha256="a" * 64,
+                status="partially_assessed_provisional",
+                reference_versions=(f"ras-rules-v{index}",),
+                fact_context={"attestation_id": f"opaque-{index}"},
+                cases=tuple(
+                    _ras_audit_case(
+                        case.candidate_id,
+                        difference=str(index)
+                        if case.candidate_id == f"entry-{index}"
+                        else "0",
+                    )
+                    for case in base_cases
+                ),
+                created_at=datetime(2026, 8, 10, tzinfo=UTC),
+            )
+        )
+    job_repository = RasCandidateJobRepository(session_factory)
+
+    async def override_orchestrator() -> Any:
+        return orchestrator
+
+    app.dependency_overrides[get_ras_candidate_job_repository] = (
+        lambda: job_repository
+    )
+    app.dependency_overrides[get_ras_audit_repository] = (
+        lambda: audit_repository
+    )
+    app.dependency_overrides[get_agent_orchestrator] = override_orchestrator
+    app.dependency_overrides[get_agent_file_resolver] = lambda: FakeAgentFileResolver(
+        Path("ledger.xlsx")
+    )
+    return app, audit_repository
+
+
 def _post(app: Any, path: str, json: dict[str, object]) -> httpx.Response:
     return asyncio.run(_async_post(app, path, json))
 
 
 def _get(app: Any, path: str) -> httpx.Response:
     return asyncio.run(_async_get(app, path))
+
+
+def _delete(app: Any, path: str) -> httpx.Response:
+    return asyncio.run(_async_delete(app, path))
 
 
 def _post_files(
@@ -1281,6 +1793,15 @@ async def _async_get(app: Any, path: str) -> httpx.Response:
         base_url="http://testserver",
     ) as client:
         return await client.get(path)
+
+
+async def _async_delete(app: Any, path: str) -> httpx.Response:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+    ) as client:
+        return await client.delete(path)
 
 
 async def _async_post_files(

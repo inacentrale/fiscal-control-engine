@@ -1,4 +1,4 @@
-import { getData } from "@/api/core/api";
+import { deleteData, getData } from "@/api/core/api";
 
 import type {
   AgentSessionContextResponse,
@@ -40,3 +40,6 @@ export const getAgentConversation = (
   runId: string
 ): Promise<AgentConversationDetailResponse> =>
   getData<AgentConversationDetailResponse>(`agent/conversations/${runId}`);
+
+export const deleteAgentConversation = (runId: string): Promise<void> =>
+  deleteData<void>(`agent/conversations/${runId}`);

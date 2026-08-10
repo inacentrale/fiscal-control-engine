@@ -142,8 +142,8 @@ def test_reconciles_withholding_evidence_using_explicit_fields(
     declaration = WithholdingTabularExtractor().extract(path, _source(path.name))
     invoice = InvoiceEvidence(
         invoice_id="F-RAS-1",
-        partner_identifier="PARTNER-001",
-        partner_identifier_type="SYSTEME_SOURCE",
+        partner_identifier=None,
+        partner_identifier_type=None,
         net_amount=None,
         vat_amount=None,
         gross_amount=Decimal("1000000"),

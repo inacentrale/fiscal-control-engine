@@ -3,6 +3,7 @@ from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType
+from typing import TypedDict
 from unicodedata import normalize
 from uuid import uuid4
 
@@ -54,6 +55,7 @@ from app.ras_audit.accounting_assessment import (
     RasAccountingAssessor,
 )
 from app.ras_audit.accounting_entry import (
+    AccountingEntryReconstructionReport,
     AccountingEntryReconstructionToolReport,
     AccountingEntryReconstructor,
     ReconstructedAccountingEntry,
@@ -68,7 +70,11 @@ from app.ras_audit.audit_report import (
     RasAuditReportDetail,
     RasAuditReportGenerator,
 )
-from app.ras_audit.batch_audit import RasBatchAuditResult, RasBatchAuditService
+from app.ras_audit.batch_audit import (
+    RasBatchAuditResult,
+    RasBatchAuditService,
+    RasBatchCandidateContext,
+)
 from app.ras_audit.candidate_detection import (
     RasCandidateDetectionReport,
     RasCandidateDetectionToolReport,
@@ -87,6 +93,7 @@ from app.ras_audit.column_aliases import (
 from app.ras_audit.counterpart import (
     RasCounterpartAmount,
     RasCounterpartFinder,
+    RasCounterpartReport,
     RasCounterpartStatus,
     RasCounterpartToolReport,
 )
@@ -132,6 +139,7 @@ from app.ras_audit.theoretical_calculation import (
     RasTheoreticalCalculationToolReport,
     RasTheoreticalCalculator,
 )
+from app.ras_audit.workflow import RAS_WORKFLOW_CONTRACT_VERSION, RasWorkflowState
 
 QUERY_FILTER_NAMES = {
     "account",
@@ -170,6 +178,13 @@ RAS_DETECTION_FILTER_NAMES = {
     "fiscal_year",
     "currency",
 }
+
+class _CandidateAccountSummary(TypedDict):
+    candidate_ids: set[str]
+    amounts: dict[str, Decimal]
+    status_counts: dict[str, int]
+    signal_counts: dict[str, int]
+
 
 ToolResult = (
     ExcelSheetList
@@ -716,6 +731,23 @@ class ExcelToolExecutor:
                                 "ras_account_mapping_unavailable",
                                 "expense and RAS payable mappings are required",
                             )
+                        raw_selector = validated_call.arguments.get("entry_selector")
+                        selector = _reconstruction_entry_selector(raw_selector)
+                        if raw_selector is not None and selector is None:
+                            return _failed(
+                                tool_call.name,
+                                "invalid_accounting_entry_selector",
+                                "accounting entry selector is invalid",
+                            )
+                        selected_entry = _select_reconstructed_entry(
+                            reconstruction.entries,
+                            selector,
+                        )
+                        selected_line_ids = (
+                            set(selected_entry.line_ids)
+                            if selected_entry is not None
+                            else set()
+                        )
                         scope = assess_uploaded_sheet_scope(
                             normalization=normalization_report,
                             reconstruction=reconstruction,
@@ -744,6 +776,32 @@ class ExcelToolExecutor:
                             if self._ras_candidate_signals
                             else None
                         )
+                        selected_counterpart_report = RasCounterpartFinder(
+                            posting_key_rules=self._posting_key_rules,
+                            account_mappings=self._ras_ledger_account_mappings,
+                            related_window_days=(
+                                int(raw_window) if raw_window is not None else 31
+                            ),
+                        ).find(
+                            ledger_entries=normalization_report.entries,
+                            reconstruction=reconstruction,
+                            source_scope_complete=source_scope_complete,
+                        )
+                        if selector is not None:
+                            selected_counterpart_report = RasCounterpartReport(
+                                assessments=tuple(
+                                    assessment
+                                    for assessment in (
+                                        selected_counterpart_report.assessments
+                                    )
+                                    if selected_entry is not None
+                                    and assessment.candidate_entry_id
+                                    == selected_entry.entry_id
+                                )
+                            )
+                            detected_candidate_piece_count = len(
+                                selected_counterpart_report.assessments
+                            )
                         result = RasCounterpartToolReport(
                             sheet_name=normalization_report.sheet_name,
                             source_row_count=(
@@ -760,16 +818,13 @@ class ExcelToolExecutor:
                             detected_candidate_piece_count=(
                                 detected_candidate_piece_count
                             ),
-                            report=RasCounterpartFinder(
-                                posting_key_rules=self._posting_key_rules,
-                                account_mappings=self._ras_ledger_account_mappings,
-                                related_window_days=(
-                                    int(raw_window) if raw_window is not None else 31
-                                ),
-                            ).find(
-                                ledger_entries=normalization_report.entries,
-                                reconstruction=reconstruction,
-                                source_scope_complete=source_scope_complete,
+                            report=selected_counterpart_report,
+                            selector=selector,
+                            selected_entry=selected_entry,
+                            selected_lines=tuple(
+                                entry
+                                for entry in normalization_report.entries
+                                if entry.line_id in selected_line_ids
                             ),
                         )
                     elif validated_call.name == "detect_ras_candidates":
@@ -960,6 +1015,7 @@ class ExcelToolExecutor:
                             self._ras_audit_repository
                         ).persist(
                             source_sha256=normalization_report.content_sha256,
+                            sheet_name=normalization_report.sheet_name,
                             detection=detection,
                             counterparts=counterpart_report,
                             reference_versions=_batch_reference_versions(
@@ -971,6 +1027,12 @@ class ExcelToolExecutor:
                             source_scope_policy_version=scope.policy_version,
                             session_id=batch_context.session_id,
                             file_id=batch_context.file_id,
+                            candidate_contexts=_batch_candidate_contexts(
+                                detection=detection,
+                                reconstruction=reconstruction,
+                                entries=normalization_report.entries,
+                                source_sha256=normalization_report.content_sha256,
+                            ),
                         )
                     elif validated_call.name == "assess_ras_accounting":
                         if (
@@ -1228,6 +1290,12 @@ class ExcelToolExecutor:
                                     report=result,
                                     fact_context=trusted_context,
                                     base_audit_id=base_audit_id,
+                                    selected_lines=selected_lines,
+                                    operation_hints=(
+                                        selected_candidate.operation_hints
+                                        if selected_candidate is not None
+                                        else ()
+                                    ),
                                 )
                             except RasAuditDerivationError as exc:
                                 return _failed(
@@ -1294,6 +1362,8 @@ class ExcelToolExecutor:
         report: RasAccountingAssessmentToolReport,
         fact_context: RasVerifiedFactContext,
         base_audit_id: str | None,
+        selected_lines: tuple[CanonicalLedgerEntry, ...],
+        operation_hints: tuple[str, ...],
     ) -> str:
         if self._ras_audit_repository is None:
             raise ValueError("RAS audit repository is unavailable")
@@ -1315,11 +1385,70 @@ class ExcelToolExecutor:
             )
             .details[0]
         )
+        detail_payload = _ras_report_detail_payload(detail)
+        periods = {
+            (line.fiscal_year, line.period)
+            for line in selected_lines
+            if line.fiscal_year is not None and line.period is not None
+        }
+        accounts = sorted(
+            {
+                line.account_number
+                for line in selected_lines
+                if line.account_number is not None
+            }
+        )
+        documents = sorted(
+            {
+                line.document_number
+                for line in selected_lines
+                if line.document_number is not None
+            }
+        )
+        partners = sorted(
+            {
+                line.partner_id
+                for line in selected_lines
+                if line.partner_id is not None
+            }
+        )
+        supplier_reference = None
+        if len(partners) == 1:
+            supplier_reference = "Tiers-" + sha256(
+                f"{source_sha256}:{partners[0]}".encode()
+            ).hexdigest()[:10].upper()
+        tax_events = sorted(
+            f"{fact.name}:{fact.value}"
+            for fact in fact_context.facts
+            if fact.name.endswith("_date")
+        )
+        detail_payload.update(
+            {
+                "period": (
+                    f"{next(iter(periods))[0]}-P{next(iter(periods))[1]:02d}"
+                    if len(periods) == 1
+                    else None
+                ),
+                "document_reference": documents[0] if len(documents) == 1 else None,
+                "account_number": ";".join(accounts) if accounts else None,
+                "operation_nature": (
+                    operation_hints[0] if len(operation_hints) == 1 else None
+                ),
+                "tax_event": tax_events[0] if len(tax_events) == 1 else None,
+                "supplier_reference": supplier_reference,
+            }
+        )
+        detail_payload["workflow_contract_version"] = RAS_WORKFLOW_CONTRACT_VERSION
+        detail_payload["workflow_state"] = (
+            RasWorkflowState.AWAITING_FACTS.value
+            if detail.missing_facts
+            else RasWorkflowState.COUNTERPART_ASSESSED.value
+        )
         case = RasAuditCaseSnapshot(
             candidate_id=detail.candidate_id,
             status=detail.status,
             certainty=detail.certainty.value,
-            payload=_ras_report_detail_payload(detail),
+            payload=detail_payload,
         )
         fact_context_payload: dict[str, object] = {
             "message_sha256": fact_context.message_sha256,
@@ -1939,7 +2068,7 @@ def _serialize_result(
                 counterpart_issue_counts[issue_code] = (
                     counterpart_issue_counts.get(issue_code, 0) + 1
                 )
-        return {
+        counterpart_output: dict[str, object] = {
             "sheet_name": result.sheet_name,
             "row_count": result.source_row_count,
             "detected_candidate_piece_count": (
@@ -1970,6 +2099,73 @@ def _serialize_result(
             "source_scope_blockers": list(result.source_scope_blockers),
             "source_scope_policy_version": result.source_scope_policy_version,
         }
+        if result.selector is not None:
+            selected_assessment = assessments[0] if assessments else None
+            counterpart_output.update(
+                {
+                    "selector": result.selector,
+                    "selected_entry_found": result.selected_entry is not None,
+                    "selected_candidate_found": selected_assessment is not None,
+                    "selected_case": None,
+                }
+            )
+            if result.selected_entry is not None:
+                entry = result.selected_entry
+                counterpart_output["selected_case"] = {
+                    "document_number": entry.key.document_number,
+                    "fiscal_year": entry.key.fiscal_year,
+                    "journal": entry.key.journal,
+                    "line_count": len(entry.line_ids),
+                    "is_balanced": entry.is_balanced,
+                    "balances": [
+                        {
+                            "currency": balance.currency,
+                            "debit_total": str(balance.debit_total),
+                            "credit_total": str(balance.credit_total),
+                            "difference": str(balance.difference),
+                        }
+                        for balance in entry.balances
+                    ],
+                    "lines": [
+                        {
+                            "account": line.account_number,
+                            "label": line.label,
+                            "posting_key": line.posting_key,
+                            "amount": (
+                                str(line.amount) if line.amount is not None else None
+                            ),
+                            "currency": line.currency,
+                        }
+                        for line in result.selected_lines
+                    ],
+                    "counterpart_status": (
+                        selected_assessment.status.value
+                        if selected_assessment is not None
+                        else None
+                    ),
+                    "recorded_amounts": (
+                        [
+                            {
+                                "currency": amount.currency,
+                                "amount": str(amount.amount),
+                            }
+                            for amount in selected_assessment.recorded_amounts
+                        ]
+                        if selected_assessment is not None
+                        else []
+                    ),
+                    "missing_facts": (
+                        list(selected_assessment.missing_facts)
+                        if selected_assessment is not None
+                        else []
+                    ),
+                    "issues": (
+                        list(selected_assessment.issues)
+                        if selected_assessment is not None
+                        else []
+                    ),
+                }
+        return counterpart_output
     if isinstance(result, RasCandidateDetectionToolReport):
         candidates = result.report.candidates
         candidate_status_counts: dict[str, int] = {}
@@ -1977,7 +2173,7 @@ def _serialize_result(
         operation_hint_counts: dict[str, int] = {}
         candidate_missing_fact_counts: dict[str, int] = {}
         amount_totals: dict[str, Decimal] = {}
-        candidate_accounts: dict[str, dict[str, object]] = {}
+        candidate_accounts: dict[str, _CandidateAccountSummary] = {}
         semantic_scores: list[float] = []
         for candidate in candidates:
             candidate_status_counts[candidate.status.value] = (
@@ -2007,10 +2203,8 @@ def _serialize_result(
                     },
                 )
                 candidate_ids = account["candidate_ids"]
-                assert isinstance(candidate_ids, set)
                 candidate_ids.add(candidate.candidate_id)
                 amounts = account["amounts"]
-                assert isinstance(amounts, dict)
                 amounts[account_amount.currency] = (
                     amounts.get(account_amount.currency, Decimal("0"))
                     + account_amount.amount
@@ -2019,12 +2213,10 @@ def _serialize_result(
                     continue
                 counted_accounts.add(account_amount.account_number)
                 statuses = account["status_counts"]
-                assert isinstance(statuses, dict)
                 statuses[candidate.status.value] = (
                     statuses.get(candidate.status.value, 0) + 1
                 )
                 signals = account["signal_counts"]
-                assert isinstance(signals, dict)
                 for signal_id in candidate.signal_ids:
                     signals[signal_id] = signals.get(signal_id, 0) + 1
             if candidate.semantic_similarity is not None:
@@ -2231,7 +2423,76 @@ def _ras_report_detail_payload(
         "issues": list(detail.issues),
         "legal_source_locators": list(detail.legal_source_locators),
         "basis_is_complete": detail.basis_is_complete,
+        "tax_base_amount": (
+            str(detail.tax_base_amount) if detail.tax_base_amount is not None else None
+        ),
+        "rate_percent": (
+            str(detail.rate_percent) if detail.rate_percent is not None else None
+        ),
+        "tolerance": str(detail.tolerance) if detail.tolerance is not None else None,
+        "rounding_policy": detail.rounding_policy,
+        "status_label": detail.status_label,
+        "review_priority": detail.review_priority,
+        "action_code": detail.action_code,
+        "explanation": detail.explanation,
+        "missing_fact_labels": list(detail.missing_fact_labels),
+        "issue_labels": list(detail.issue_labels),
+        "supplier_reference": detail.supplier_reference,
     }
+
+
+def _batch_candidate_contexts(
+    *,
+    detection: RasCandidateDetectionReport,
+    reconstruction: AccountingEntryReconstructionReport,
+    entries: tuple[CanonicalLedgerEntry, ...],
+    source_sha256: str,
+) -> dict[str, RasBatchCandidateContext]:
+    entries_by_id = {entry.line_id: entry for entry in entries}
+    reconstructed_by_id = {entry.entry_id: entry for entry in reconstruction.entries}
+    contexts: dict[str, RasBatchCandidateContext] = {}
+    for candidate in detection.candidates:
+        reconstructed = reconstructed_by_id.get(candidate.accounting_entry_id)
+        if reconstructed is None:
+            continue
+        lines = tuple(
+            entries_by_id[line_id]
+            for line_id in reconstructed.line_ids
+            if line_id in entries_by_id
+        )
+        periods = {
+            (line.fiscal_year, line.period)
+            for line in lines
+            if line.fiscal_year is not None and line.period is not None
+        }
+        accounts = sorted(
+            {line.account_number for line in lines if line.account_number is not None}
+        )
+        partners = sorted(
+            {line.partner_id for line in lines if line.partner_id is not None}
+        )
+        supplier_reference = None
+        if len(partners) == 1:
+            digest = sha256(
+                f"{source_sha256}:{partners[0]}".encode()
+            ).hexdigest()[:10]
+            supplier_reference = f"Tiers-{digest.upper()}"
+        contexts[candidate.accounting_entry_id] = RasBatchCandidateContext(
+            period=(
+                f"{next(iter(periods))[0]}-P{next(iter(periods))[1]:02d}"
+                if len(periods) == 1
+                else None
+            ),
+            document_reference=reconstructed.key.document_number,
+            account_number=";".join(accounts) if accounts else None,
+            operation_nature=(
+                candidate.operation_hints[0]
+                if len(candidate.operation_hints) == 1
+                else None
+            ),
+            supplier_reference=supplier_reference,
+        )
+    return contexts
 
 
 def _assessment_reference_versions(

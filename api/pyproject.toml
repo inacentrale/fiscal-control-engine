@@ -47,5 +47,5 @@ strict = true
 plugins = []
 
 [[tool.mypy.overrides]]
-module = ["pandas.*", "PIL.*", "pypdfium2.*", "pytesseract.*"]
+module = ["openpyxl.*", "pandas.*", "PIL.*", "pypdfium2.*", "pytesseract.*"]
 ignore_missing_imports = true

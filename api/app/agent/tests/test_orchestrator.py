@@ -5,7 +5,12 @@ from app.agent.orchestrator import (
     AgentRunEvent,
     AgentRunRequest,
     _compact_tool_output,
+    _deterministic_file_intent_tool_calls,
     _deterministic_tool_results_answer,
+    _file_metric_lines,
+    _file_tax_candidate_lines,
+    _next_ras_workflow_call,
+    _ras_workflow_event,
     _single_candidate_ras_followup,
     _with_request_context,
 )
@@ -19,6 +24,7 @@ from app.llm.domain import (
     ModelProviderError,
     ModelRequest,
     ModelResponse,
+    ModelToolDefinition,
     ToolCall,
 )
 from app.llm.fallback_model import FallbackModelProvider
@@ -208,8 +214,8 @@ def test_report_result_has_specific_deterministic_answer() -> None:
     )
 
     assert "**Rapport d'audit RAS**" in answer
-    assert "Report ID : report-1" in answer
-    assert "XOF/indeterminate: 1 cas, comptabilise 2500" in answer
+    assert "Identifiant du rapport : report-1" in answer
+    assert "XOF/Indéterminée: 1 cas, comptabilise 2500" in answer
 
 
 def test_single_candidate_batch_builds_safe_deterministic_followup() -> None:
@@ -255,6 +261,211 @@ def test_multi_candidate_batch_never_applies_user_facts_globally() -> None:
     )
 
     assert _single_candidate_ras_followup((batch,), request) is None
+
+
+def test_ras_workflow_plans_assessment_then_derived_report() -> None:
+    request = AgentRunRequest(
+        user_message="Audite la RAS.",
+        file_path=Path("ledger.xlsx"),
+        sheet_name="GL",
+        allowed_tools=(
+            "run_ras_audit_batch",
+            "assess_ras_accounting",
+            "generate_ras_audit_report",
+        ),
+    )
+    batch = ToolExecutionResult(
+        tool_name="run_ras_audit_batch",
+        ok=True,
+        output={
+            "audit_id": "audit-1",
+            "review_candidate_ids": ["candidate-1"],
+            "remaining_candidate_count": 0,
+        },
+    )
+
+    assessment_call = _next_ras_workflow_call((batch,), request)
+
+    assert assessment_call == ToolCall(
+        name="assess_ras_accounting",
+        arguments={"base_audit_id": "audit-1", "candidate_id": "candidate-1"},
+    )
+    assessment = ToolExecutionResult(
+        tool_name="assess_ras_accounting",
+        ok=True,
+        output={"audit_id": "audit-2", "missing_facts": []},
+    )
+
+    assert _next_ras_workflow_call((batch, assessment), request) == ToolCall(
+        name="generate_ras_audit_report",
+        arguments={"audit_id": "audit-2"},
+    )
+
+
+def test_ras_workflow_chains_selected_entry_to_counterpart_search() -> None:
+    request = AgentRunRequest(
+        user_message=(
+            "Analyse la pièce 000042, reconstruis son écriture et recherche "
+            "une éventuelle contrepartie RAS."
+        ),
+        file_path=Path("ledger.xlsx"),
+        sheet_name="GL",
+        allowed_tools=(
+            "reconstruct_accounting_entry",
+            "find_ras_counterpart",
+        ),
+    )
+    reconstruction = ToolExecutionResult(
+        tool_name="reconstruct_accounting_entry",
+        ok=True,
+        output={
+            "selector": {"document_number": "000042", "fiscal_year": 2025},
+            "selected_entry_found": True,
+        },
+    )
+
+    assert _next_ras_workflow_call((reconstruction,), request) == ToolCall(
+        name="find_ras_counterpart",
+        arguments={
+            "entry_selector": {
+                "document_number": "000042",
+                "fiscal_year": 2025,
+            }
+        },
+    )
+
+
+def test_ras_audit_intent_is_routed_through_readiness_before_batch() -> None:
+    request = AgentRunRequest(
+        user_message="Audite la RAS de ce Grand Livre.",
+        file_path=Path("ledger.xlsx"),
+        sheet_name="GL",
+        allowed_tools=(
+            "normalize_gl",
+            "assess_gl_readiness",
+            "detect_ras_candidates",
+            "run_ras_audit_batch",
+        ),
+    )
+
+    calls = _deterministic_file_intent_tool_calls(request)
+
+    assert [call.name for call in calls] == [
+        "normalize_gl",
+        "assess_gl_readiness",
+        "detect_ras_candidates",
+        "run_ras_audit_batch",
+    ]
+
+
+def test_candidate_detection_emits_safe_detected_workflow_state() -> None:
+    event = _ras_workflow_event(
+        ToolExecutionResult(
+            tool_name="detect_ras_candidates",
+            ok=True,
+            output={"candidate_piece_count": 3},
+        )
+    )
+
+    assert event is not None
+    assert event.status == "detected"
+    assert event.message == "3 candidat(s) ont un identifiant de revue opaque."
+
+
+def test_ras_workflow_stops_after_report_or_failed_assessment() -> None:
+    request = AgentRunRequest(
+        user_message="Audite la RAS.",
+        file_path=Path("ledger.xlsx"),
+        sheet_name="GL",
+        allowed_tools=(
+            "run_ras_audit_batch",
+            "assess_ras_accounting",
+            "generate_ras_audit_report",
+        ),
+    )
+    batch = ToolExecutionResult(
+        tool_name="run_ras_audit_batch",
+        ok=True,
+        output={
+            "audit_id": "audit-1",
+            "review_candidate_ids": ["candidate-1"],
+            "remaining_candidate_count": 0,
+        },
+    )
+    failed = ToolExecutionResult(
+        tool_name="assess_ras_accounting",
+        ok=False,
+        output={},
+        error_code="ras_fact_context_required",
+        error_message="safe failure",
+    )
+    report = ToolExecutionResult(
+        tool_name="generate_ras_audit_report",
+        ok=True,
+        output={"audit_id": "audit-2", "report_id": "report-1"},
+    )
+
+    assert _next_ras_workflow_call((batch, failed), request) is None
+    assert _next_ras_workflow_call((batch, report), request) is None
+
+
+def test_orchestrator_executes_single_candidate_workflow_to_report() -> None:
+    executor = WorkflowToolExecutor()
+    model = FakeModelProvider(
+        responses=(
+            ModelResponse(
+                text="",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="tool_calls",
+                tool_calls=(ToolCall(name="run_ras_audit_batch", arguments={}),),
+            ),
+            ModelResponse(
+                text="Rapport prepare.",
+                provider_name="fake",
+                model_name="fake-model",
+                finish_reason="stop",
+                tool_calls=(),
+            ),
+        )
+    )
+    orchestrator = AgentOrchestrator(model_provider=model, tool_executor=executor)
+
+    result = orchestrator.run(
+        AgentRunRequest(
+            user_message="Audite la RAS.",
+            file_path=Path("ledger.xlsx"),
+            sheet_name="GL",
+            allowed_tools=(
+                "run_ras_audit_batch",
+                "assess_ras_accounting",
+                "generate_ras_audit_report",
+            ),
+        )
+    )
+
+    assert [call.name for call in executor.calls] == [
+        "run_ras_audit_batch",
+        "assess_ras_accounting",
+        "generate_ras_audit_report",
+    ]
+    assert executor.calls[1].arguments["base_audit_id"] == "audit-1"
+    assert executor.calls[1].arguments["candidate_id"] == "candidate-1"
+    assert executor.calls[2].arguments == {"audit_id": "audit-2"}
+    assert [result.tool_name for result in result.tool_results] == [
+        "run_ras_audit_batch",
+        "assess_ras_accounting",
+        "generate_ras_audit_report",
+    ]
+    assert sum(
+        event.event_type == "workflow_transition"
+        for event in result.execution_events
+    ) == 2
+    assert [
+        event.status
+        for event in result.execution_events
+        if event.event_type == "workflow_state_changed"
+    ] == ["awaiting_facts", "blocked", "reported"]
 
 
 def test_orchestrator_hides_ras_column_mapping_from_model_schema(
@@ -391,13 +602,20 @@ def test_final_context_keeps_selected_accounting_entry_details() -> None:
 
     compact = _compact_tool_output(result)
 
-    assert compact["selector"]["document_number"] == "2024002341"
+    selector = compact["selector"]
+    selected_entry = compact["selected_entry"]
+    assert isinstance(selector, dict)
+    assert isinstance(selected_entry, dict)
+    assert selector["document_number"] == "2024002341"
     assert compact["selected_entry_found"] is True
-    assert compact["selected_entry"]["line_count"] == 2
-    assert compact["selected_entry"]["lines"][0]["account"] == "61365000"
+    assert selected_entry["line_count"] == 2
+    lines = selected_entry["lines"]
+    assert isinstance(lines, list)
+    assert isinstance(lines[0], dict)
+    assert lines[0]["account"] == "61365000"
 
 
-def test_ras_counterpart_answer_includes_scope_and_status_counts() -> None:
+def test_ras_counterpart_answer_hides_technical_scope_details() -> None:
     result = ToolExecutionResult(
         tool_name="find_ras_counterpart",
         ok=True,
@@ -428,7 +646,10 @@ def test_ras_counterpart_answer_includes_scope_and_status_counts() -> None:
     assert "Hors scope rapprochement : 93" in answer
     assert "RAS trouvee dans la meme piece : 59" in answer
     assert "1693625 XOF" in answer
-    assert "missing_company_scope" in answer
+    assert "source_scope_complete" not in answer
+    assert "missing_company_scope" not in answer
+    assert "Périmètre technique complet" not in answer
+    assert "Blocages" not in answer
 
 
 def test_tax_rag_tool_is_selected_by_model_and_final_answer_comes_from_model(
@@ -735,7 +956,7 @@ def test_orchestrator_returns_deterministic_answer_when_final_model_is_internal(
     assert model.calls == 2
 
 
-def test_orchestrator_does_not_run_default_excel_analysis_when_model_skips_tool_call(
+def test_orchestrator_routes_generic_excel_analysis_before_model_call(
     tmp_path: Path,
 ) -> None:
     workbook_path = write_minified_grand_livre(tmp_path)
@@ -761,13 +982,19 @@ def test_orchestrator_does_not_run_default_excel_analysis_when_model_skips_tool_
         ),
     )
 
-    assert result.answer == "Les contrôles déterministes sont disponibles."
-    assert result.tool_results == ()
+    assert result.answer == (
+        "Analyse du Grand Livre terminée: 4 lignes, 5 colonnes.\n\n"
+        "Colonnes requises disponibles."
+    )
+    assert [tool.tool_name for tool in result.tool_results] == ["analyze_ledger"]
     assert result.provider_name == "internal"
     assert result.model_name == "controlled-response"
     assert [event.event_type for event in result.execution_events] == [
         "run_started",
         "file_checked",
+        "tool_requested",
+        "tool_started",
+        "tool_finished",
         "model_requested",
         "answer_ready",
     ]
@@ -1116,9 +1343,8 @@ def test_orchestrator_routes_general_excel_explanation_to_analysis_tools(
     assert "calculate_ledger_metrics" in final_context
     assert "aggregate_ledger" in final_context
     assert model.requests[0].allowed_tools == ()
-    assert result.answer == (
-        "Le fichier est un Grand Livre de 4 lignes avec des contrôles."
-    )
+    assert result.answer.startswith("**Vue synthétique du Grand Livre**")
+    assert "Solde global" not in result.answer
 
 
 def test_orchestrator_explains_file_with_deterministic_answer_when_model_is_internal(
@@ -1198,6 +1424,102 @@ def test_orchestrator_uses_deterministic_file_overview_when_model_is_truncated(
     assert "Qualité des données" in result.answer
     assert "Signaux fiscaux à revoir" in result.answer
     assert model.calls == 1
+
+
+def test_file_overview_does_not_display_global_amount_metrics() -> None:
+    lines = _file_metric_lines(
+        ToolExecutionResult(
+            tool_name="calculate_ledger_metrics",
+            ok=True,
+            output={
+                "metrics": {
+                    "sum": -9_522_740,
+                    "average": -3_809.096,
+                    "min": -565_000,
+                    "max": 500_000,
+                },
+                "metrics_by_currency": {"XOF": {}},
+            },
+        )
+    )
+
+    assert lines == []
+
+
+def test_ras_candidate_detection_answer_translates_codes_and_hides_scope() -> None:
+    result = ToolExecutionResult(
+        tool_name="detect_ras_candidates",
+        ok=True,
+        output={
+            "row_count": 3010,
+            "evaluated_piece_count": 100,
+            "candidate_piece_count": 43,
+            "status_counts": {
+                "candidate_text_only": 17,
+                "candidate_account_only": 4,
+                "candidate_account_and_text": 22,
+            },
+            "candidate_amounts_by_currency": {"XOF": "1250000"},
+            "missing_fact_counts": {"strong_semantic_signal": 27},
+            "source_scope_complete": False,
+            "source_scope_blockers": [
+                "journal_is_document_type_proxy",
+                "missing_company_scope",
+                "posting_date_is_document_date_proxy",
+            ],
+            "decision_status": "review_only_no_tax_conclusion",
+        },
+    )
+
+    answer = _deterministic_tool_results_answer((result,))
+
+    assert "Libellé uniquement : 17" in answer
+    assert "Compte uniquement : 4" in answer
+    assert "Compte et libellé concordants : 22" in answer
+    assert "Signal sémantique fort à confirmer : 27" in answer
+    assert "candidate_" not in answer
+    assert "strong_semantic_signal" not in answer
+    assert "source_scope_complete" not in answer
+    assert "journal_is_document_type_proxy" not in answer
+    assert "Bloqueurs" not in answer
+
+
+def test_tax_candidate_summary_is_french_and_actionable() -> None:
+    lines = _file_tax_candidate_lines(
+        ToolExecutionResult(
+            tool_name="detect_tax_candidates",
+            ok=True,
+            output={
+                "candidates": [
+                    {
+                        "category": "resident_services",
+                        "entry_count": 227,
+                        "amount_sum": 61_173_000,
+                        "amounts_by_currency": {"XOF": 61_173_000},
+                        "matched_keywords": ["honoraire", "conseil"],
+                        "top_accounts": [
+                            {
+                                "key": "61365000",
+                                "entry_count": 227,
+                                "amount_sum": 61_173_000,
+                            }
+                        ],
+                        "action_required": "Verifier IFU et seuil facture.",
+                    }
+                ]
+            },
+        )
+    )
+    answer = "\n".join(lines)
+
+    assert "Prestations de services à des résidents" in answer
+    assert "resident_services" not in answer
+    assert "Volume : 227 écriture(s)" in answer
+    assert "Montant repéré : 61 173 000.00 XOF" in answer
+    assert "Preuves disponibles" in answer
+    assert "honoraire" in answer
+    assert "61365000" in answer
+    assert "À vérifier : Verifier IFU et seuil facture." in answer
 
 
 def test_orchestrator_routes_column_role_question_to_schema_classification(
@@ -1629,6 +1951,57 @@ def _create_orchestrator(
             registry=create_excel_tool_registry(),
         ),
     )
+
+
+class WorkflowToolExecutor:
+    def __init__(self) -> None:
+        self.calls: list[ToolCall] = []
+
+    def get_model_tool_definitions(
+        self,
+        allowed_tools: tuple[str, ...],
+    ) -> tuple[ModelToolDefinition, ...]:
+        return ()
+
+    def execute(
+        self,
+        tool_call: ToolCall,
+        *,
+        ras_fact_context_token: str | None = None,
+    ) -> ToolExecutionResult:
+        self.calls.append(tool_call)
+        if tool_call.name == "run_ras_audit_batch":
+            return ToolExecutionResult(
+                tool_name=tool_call.name,
+                ok=True,
+                output={
+                    "audit_id": "audit-1",
+                    "review_candidate_ids": ["candidate-1"],
+                    "remaining_candidate_count": 0,
+                },
+            )
+        if tool_call.name == "assess_ras_accounting":
+            return ToolExecutionResult(
+                tool_name=tool_call.name,
+                ok=True,
+                output={"audit_id": "audit-2", "missing_facts": []},
+            )
+        if tool_call.name == "generate_ras_audit_report":
+            return ToolExecutionResult(
+                tool_name=tool_call.name,
+                ok=True,
+                output={
+                    "audit_id": "audit-2",
+                    "report_id": "report-1",
+                    "case_count": 1,
+                    "status_counts": {"ras_accounted_compliant": 1},
+                    "certainty_counts": {"supported_provisional": 1},
+                    "amount_summaries": [],
+                    "recorded_amount_summaries": [],
+                    "reference_versions": ["rules-v1"],
+                },
+            )
+        raise AssertionError(f"unexpected tool call: {tool_call.name}")
 
 
 class FakeModelProvider:

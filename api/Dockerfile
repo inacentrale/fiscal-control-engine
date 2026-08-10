@@ -2,7 +2,8 @@ FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv
 
 WORKDIR /app
 
@@ -17,7 +18,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
-RUN uv sync --extra dev --extra embeddings
+RUN uv sync --extra dev
 
 COPY app ./app
 COPY tests ./tests

@@ -1,9 +1,19 @@
 import type {
   AgentRunResponse,
   RasCandidateDetectionResult,
+  RasCandidateReviewCase,
   RasReviewPeriod,
   RasReviewSummary,
 } from "./types";
+
+export function isLabelDetectedReviewCase(
+  reviewCase: RasCandidateReviewCase
+): boolean {
+  return (
+    reviewCase.detectionStatus === "candidate_text_only" ||
+    reviewCase.missingFacts.includes("strong_semantic_signal")
+  );
+}
 
 export function extractRasCandidateDetectionResult(
   response: AgentRunResponse

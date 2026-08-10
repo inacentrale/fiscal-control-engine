@@ -264,6 +264,8 @@ export type AgentRasAuditReportSummary = {
   auditId: string;
   reportId: string;
   caseCount: number;
+  sessionId: string;
+  fileId: string;
 };
 
 export type AgentConversationMessage =

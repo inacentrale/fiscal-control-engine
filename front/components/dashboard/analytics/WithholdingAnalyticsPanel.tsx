@@ -24,6 +24,7 @@ import type {
   RasCandidateReviewCase,
   RasReviewPeriod,
 } from "@/api/agent/types";
+import { isLabelDetectedReviewCase } from "@/api/agent/rasCandidateDetection";
 import { ModalTitle } from "@/components/base/modal";
 import {
   Chart2Icon,
@@ -153,6 +154,10 @@ function WithholdingReadyBody({ result }: { result: RasCandidateDetectionResult 
           />
         </AnalyticsReveal>
       )}
+
+      <AnalyticsReveal delay={0.1}>
+        <RasLabelDetectedCases result={result} />
+      </AnalyticsReveal>
     </>
   );
 }
@@ -308,6 +313,10 @@ export function WithholdingExpandedModal({
               </div>
 
               <div className="mt-4">
+                <RasLabelDetectedCases result={result} />
+              </div>
+
+              <div className="mt-4">
                 <RasReviewQueue
                   missingFactFilter={selectedMissingFact}
                   onClearMissingFactFilter={() => setSelectedMissingFact(null)}
@@ -380,6 +389,96 @@ export function WithholdingExpandedModal({
       </section>
     </div>
   );
+}
+
+function RasLabelDetectedCases({
+  result,
+}: {
+  result: RasCandidateDetectionResult;
+}) {
+  const cases = result.reviewCases.filter(isLabelDetectedReviewCase);
+  if (cases.length === 0) return null;
+
+  return (
+    <details className="group rounded-[20px] bg-white shadow-[0_16px_42px_rgba(64,81,92,0.07)] ring-1 ring-[#e5eef2]">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 marker:hidden">
+        <span>
+          <span className="block text-[14px] font-semibold text-[#102734]">
+            Pièces détectées à partir de leur libellé
+          </span>
+          <span className="mt-1 block text-[11px] font-medium text-[#7d8d97]">
+            Ouvrir pour retrouver et vérifier chaque écriture concernée
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="rounded-full bg-[#fff4ed] px-2.5 py-1 text-[11px] font-semibold text-[#c8563f]">
+            {formatCompactNumber(cases.length)} pièce{cases.length > 1 ? "s" : ""}
+          </span>
+          <span
+            aria-hidden="true"
+            className="text-[18px] font-semibold text-[#60737e] transition-transform group-open:rotate-45"
+          >
+            +
+          </span>
+        </span>
+      </summary>
+
+      <div className="max-h-[520px] space-y-3 overflow-y-auto border-t border-[#edf2f4] p-3">
+        {cases.map((reviewCase) => (
+          <article
+            className="rounded-[14px] bg-[#f7fafb] p-3 ring-1 ring-[#e8f0f3]"
+            key={reviewCase.candidateId}
+          >
+            <dl className="grid gap-3 text-[12px] sm:grid-cols-2 xl:grid-cols-3">
+              <ReviewField
+                label="Référence réelle"
+                value={reviewCase.documentNumber ?? "Non renseignée"}
+              />
+              <ReviewField
+                label="Date"
+                value={formatReviewDate(reviewCase.postingDate)}
+              />
+              <ReviewField
+                label="Compte"
+                value={reviewCase.accountNumbers.join(", ") || "Non identifié"}
+              />
+              <ReviewField
+                label="Libellé"
+                value={reviewCase.label ?? "Non renseigné"}
+              />
+              <ReviewField
+                label="Montant"
+                value={formatAccountAmounts(reviewCase.amountsByCurrency)}
+              />
+              <ReviewField
+                label="Motif de détection"
+                value={labelDetectionReason(reviewCase)}
+              />
+            </dl>
+          </article>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function ReviewField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.04em] text-[#8a98a2]">
+        {label}
+      </dt>
+      <dd className="mt-1 break-words font-semibold text-[#203743]">{value}</dd>
+    </div>
+  );
+}
+
+function labelDetectionReason(reviewCase: RasCandidateReviewCase): string {
+  const signals = reviewCase.signalIds.map(rasLabel).filter(Boolean);
+  const evidence = signals.length > 0 ? signals.join(", ") : "indice textuel";
+  return reviewCase.detectionStatus === "candidate_text_only"
+    ? `Libellé seul : ${evidence}`
+    : `Libellé à confirmer : ${evidence}`;
 }
 
 function RasCandidateAccountsTable({

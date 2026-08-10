@@ -11,6 +11,8 @@ Checklist operationnelle du chantier front. Les cases seront cochees au fur et a
 - [x] Ramener le socle Shopinx utile: API core, hooks generiques, utils, styles, polices, icons et composants base ciblés.
 - [ ] Surveiller l'audit npm Next/PostCSS/Sharp: derniere version stable `next@16.2.12` encore signalee par `npm audit --omit=dev`.
 - [x] Valider le socle: `npm run lint`, `npm run typecheck`, `npm run test`, `npm run build`.
+- [x] Ajouter ces quatre controles a la CI GitHub Actions avec installation
+  reproductible par `npm ci` sous Node.js 22.
 
 ## Dashboard Agent
 
@@ -67,10 +69,18 @@ Checklist operationnelle du chantier front. Les cases seront cochees au fur et a
 - [x] Afficher un loading intelligent avec etapes d'execution haut niveau.
 - [x] Brancher le chat sur `POST /api/agent/runs/stream` pour afficher les evenements API au fil de l'eau.
 - [x] Garder `POST /api/agent/runs` en fallback si le stream n'est pas disponible.
+- [x] Eviter les relances automatiques de `detect_ras_candidates` au focus ou au
+  remontage de la vue, mettre le resultat en cache par fichier et borner le
+  stream du chat a 90 secondes sans fallback en double apres expiration.
+  Validation: typecheck, lint et test Vitest cible passent le 10 aout 2026.
 - [x] Aligner le proxy front `/api/*` vers l'API locale du projet sur `http://localhost:8001`.
 - [x] Formatter les reponses agent en Markdown simple: paragraphes, titres et listes.
 - [x] Ne pas afficher les métriques deterministes comme une reponse agent.
 - [ ] Afficher les resultats de mapping et anomalies.
+- [x] Ajouter une liste depliable des pieces detectees par leur libelle avec
+  reference reelle, date, compte, libelle, montant et motif de detection.
+- [x] Aligner la reference de piece de l'apercu de rapport sur la reference
+  comptable reelle, sans modifier les exports JSON/CSV telechargeables.
 - [x] Ajouter les types front du contexte session et des graphes dashboard riches.
 - [x] Ajouter l'appel front `getAgentSessionContext(sessionId)` pour la troisieme colonne.
 - [x] Ajouter `recharts` comme dependance de graphes, alignee avec le projet Harmonizer.
@@ -92,7 +102,32 @@ Checklist operationnelle du chantier front. Les cases seront cochees au fur et a
 
 ## Rapports
 
-- [ ] Preparer l'interface de generation/consultation de rapport.
+- [x] Preparer l'interface de generation/consultation de rapport.
+- [x] Afficher sur une page dediee un apercu metier avant tout telechargement,
+  avec les indicateurs, tous les dossiers en tableau desktop ou cartes mobiles,
+  les etats chargement/erreur/vide et les choix Excel, PDF, CSV et JSON.
+  - Validation du 10 aout 2026: typecheck, lint, trois tests Vitest et build
+    Next.js de production passent.
+- [ ] Faire valider l'ergonomie et la lisibilite de l'apercu par un profil
+  finance sur un audit reel avant de figer sa presentation.
+
+## Administration des sources fiscales — apres contrats backend
+
+- [ ] Ajouter un espace reserve aux administrateurs et fiscalistes pour gerer
+  les sources juridiques, sans exposer ces actions dans le chat utilisateur.
+- [ ] Ajouter l'import manuel d'un PDF ou d'une URL officielle avec progression,
+  erreurs de validation, detection des doublons et confirmation d'archivage.
+- [ ] Afficher les sources detectees ou importees avec origine, version, dates
+  d'application, empreinte, statut et historique, sans permettre leur activation
+  automatique.
+- [ ] Ajouter une vue de comparaison entre ancienne et nouvelle version par
+  article ou section, avec texte extrait et alertes de contradiction.
+- [ ] Permettre a un profil habilite de corriger l'extraction, valider, refuser
+  ou remplacer une source en saisissant un motif obligatoire.
+- [ ] Afficher separement le referentiel actif, les brouillons, les sources a
+  valider, remplacees et contradictoires.
+- [ ] Tester les parcours critiques: import, doublon, extraction invalide,
+  validation, refus, remplacement et interdiction d'acces.
 
 ## Front Audit RAS — differe jusqu'au gate backend
 

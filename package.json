@@ -14,6 +14,11 @@
     "api:smoke:llm": "docker compose run --rm -e PYTHONPATH=. api uv run python -m scripts.smoke_llm_provider",
     "api:test": "docker compose run --rm -e PYTHONPATH=. -e DATABASE_URL= api uv run --extra dev pytest -q",
     "api:typecheck": "docker compose run --rm -e PYTHONPATH=. api uv run --extra dev mypy app tests scripts",
+    "front:build": "npm run build --prefix front",
+    "front:lint": "npm run lint --prefix front",
+    "front:test": "npm run test --prefix front",
+    "front:typecheck": "npm run typecheck --prefix front",
+    "quality": "npm run api:lint && npm run api:typecheck && npm run api:test && npm run front:lint && npm run front:typecheck && npm run front:test && npm run front:build",
     "compose:down": "docker compose down",
     "compose:up": "docker compose up",
     "secrets:check": "git ls-files -z | xargs -0 python3 api/scripts/secret_scanner.py"

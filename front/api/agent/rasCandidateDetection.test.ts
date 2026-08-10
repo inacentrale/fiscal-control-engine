@@ -4,6 +4,7 @@ import type { AgentRunResponse } from "./types";
 import {
   extractRasCandidateDetectionResult,
   formatRasAmount,
+  isLabelDetectedReviewCase,
 } from "./rasCandidateDetection";
 
 describe("rasCandidateDetection", () => {
@@ -60,6 +61,27 @@ describe("rasCandidateDetection", () => {
 
   it("formats RAS amounts by currency", () => {
     expect(formatRasAmount("100000", "XOF")).toBe("100\u00A0k XOF");
+  });
+
+  it("identifies cases that must be found from their label", () => {
+    const result = extractRasCandidateDetectionResult(buildResponse());
+    const reviewCase = result?.reviewCases[0];
+    expect(reviewCase).toBeDefined();
+    if (!reviewCase) return;
+
+    expect(isLabelDetectedReviewCase(reviewCase)).toBe(false);
+    expect(
+      isLabelDetectedReviewCase({
+        ...reviewCase,
+        detectionStatus: "candidate_text_only",
+      })
+    ).toBe(true);
+    expect(
+      isLabelDetectedReviewCase({
+        ...reviewCase,
+        missingFacts: ["strong_semantic_signal"],
+      })
+    ).toBe(true);
   });
 
   it("computes cumulative candidate amounts independently by currency", () => {

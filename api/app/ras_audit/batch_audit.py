@@ -21,6 +21,7 @@ from app.ras_audit.persistence import (
     RasAuditSnapshot,
     SqlAlchemyRasAuditRepository,
 )
+from app.ras_audit.workflow import RAS_WORKFLOW_CONTRACT_VERSION, RasWorkflowState
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,15 @@ class RasBatchAuditResult:
     source_scope_blockers: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class RasBatchCandidateContext:
+    period: str | None
+    document_reference: str | None
+    account_number: str | None
+    operation_nature: str | None
+    supplier_reference: str | None
+
+
 class RasBatchAuditService:
     def __init__(
         self,
@@ -49,6 +59,7 @@ class RasBatchAuditService:
         self,
         *,
         source_sha256: str,
+        sheet_name: str,
         detection: RasCandidateDetectionReport,
         counterparts: RasCounterpartReport,
         reference_versions: tuple[str, ...],
@@ -57,35 +68,44 @@ class RasBatchAuditService:
         source_scope_policy_version: str = "ras-uploaded-sheet-scope-v2",
         session_id: str | None = None,
         file_id: str | None = None,
+        candidate_contexts: dict[str, RasBatchCandidateContext] | None = None,
     ) -> RasBatchAuditResult:
         counterpart_by_id = {
             item.candidate_entry_id: item for item in counterparts.assessments
         }
         cases = tuple(
-            _case(candidate, counterpart_by_id.get(candidate.accounting_entry_id))
+            _case(
+                candidate,
+                counterpart_by_id.get(candidate.accounting_entry_id),
+                (candidate_contexts or {}).get(candidate.accounting_entry_id),
+            )
             for candidate in detection.candidates
         )
-        audit_id = uuid4().hex
         created_at = self._now()
-        self._repository.save(
-            RasAuditSnapshot(
-                audit_id=audit_id,
-                session_id=session_id,
-                file_id=file_id,
-                source_sha256=source_sha256,
-                status="candidate_inventory_pending_legal_facts",
-                reference_versions=reference_versions,
-                fact_context={
-                    "mode": "gl_only_batch",
-                    "user_fact_values_applied": False,
-                    "source_scope_complete": source_scope_complete,
-                    "source_scope_blockers": list(source_scope_blockers),
-                    "source_scope_policy_version": source_scope_policy_version,
-                },
-                cases=cases,
-                created_at=created_at,
-            )
+        snapshot = RasAuditSnapshot(
+            audit_id=uuid4().hex,
+            session_id=session_id,
+            file_id=file_id,
+            source_sha256=source_sha256,
+            status="candidate_inventory_pending_legal_facts",
+            reference_versions=reference_versions,
+            fact_context={
+                "mode": "gl_only_batch",
+                "sheet_name": sheet_name,
+                "user_fact_values_applied": False,
+                "source_scope_complete": source_scope_complete,
+                "source_scope_blockers": list(source_scope_blockers),
+                "source_scope_policy_version": source_scope_policy_version,
+            },
+            cases=cases,
+            created_at=created_at,
         )
+        equivalent = self._repository.find_equivalent(snapshot)
+        if equivalent is None:
+            self._repository.save(snapshot)
+            audit_id = snapshot.audit_id
+        else:
+            audit_id = equivalent.audit_id
         counts = Counter(case.status for case in cases)
         return RasBatchAuditResult(
             audit_id=audit_id,
@@ -105,6 +125,7 @@ class RasBatchAuditService:
 def _case(
     candidate: RasCandidateAssessment,
     counterpart: RasCounterpartAssessment | None,
+    context: RasBatchCandidateContext | None = None,
 ) -> RasAuditCaseSnapshot:
     is_indeterminate = candidate.status is RasCandidateStatus.INDETERMINATE or bool(
         candidate.missing_facts
@@ -150,10 +171,17 @@ def _case(
             "issues": list(issues),
             "legal_source_locators": [],
             "basis_is_complete": False,
+            "workflow_contract_version": RAS_WORKFLOW_CONTRACT_VERSION,
+            "workflow_state": RasWorkflowState.AWAITING_FACTS.value,
             "candidate_status": candidate.status.value,
             "signal_ids": list(candidate.signal_ids),
             "operation_hints": list(candidate.operation_hints),
             "account_mapping_ids": list(candidate.account_mapping_ids),
+            "period": context.period if context else None,
+            "document_reference": context.document_reference if context else None,
+            "account_number": context.account_number if context else None,
+            "operation_nature": context.operation_nature if context else None,
+            "supplier_reference": context.supplier_reference if context else None,
         },
     )
 

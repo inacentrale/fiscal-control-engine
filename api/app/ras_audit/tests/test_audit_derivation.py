@@ -56,6 +56,27 @@ def test_rejects_candidate_not_present_in_base_audit(tmp_path: Path) -> None:
         )
 
 
+def test_retry_returns_existing_immutable_derivation() -> None:
+    repository = SqlAlchemyRasAuditRepository(_memory_session_factory())
+    repository.save(_base_snapshot())
+    service = RasAuditDerivationService(repository)
+    def derive() -> str:
+        return service.replace_case(
+            base_audit_id="base-audit",
+            source_sha256="a" * 64,
+            replacement=_case("entry-1", "provisional_reconciled"),
+            added_reference_versions=("legal-v1",),
+            fact_context={"message_sha256": "b" * 64},
+            created_at=datetime(2026, 8, 4, 13, tzinfo=UTC),
+        )
+
+    first_id = derive()
+    retry_id = derive()
+
+    assert retry_id == first_id
+    assert len(repository.list_events(first_id)) == 1
+
+
 def _base_snapshot() -> RasAuditSnapshot:
     return RasAuditSnapshot(
         audit_id="base-audit",
@@ -88,5 +109,11 @@ def _case(candidate_id: str, status: str) -> RasAuditCaseSnapshot:
 
 def _session_factory(tmp_path: Path) -> sessionmaker[Session]:
     engine = create_database_engine(f"sqlite:///{tmp_path / 'derivation.db'}")
+    Base.metadata.create_all(engine)
+    return create_session_factory(engine)
+
+
+def _memory_session_factory() -> sessionmaker[Session]:
+    engine = create_database_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     return create_session_factory(engine)

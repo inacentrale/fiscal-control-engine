@@ -10,7 +10,7 @@ from app.database import Base, create_database_engine, create_session_factory
 from app.ledger_analysis.posting_key_rules import load_posting_key_rules
 from app.ras_audit.account_mapping import load_ras_ledger_account_mappings
 from app.ras_audit.accounting_entry import AccountingEntryReconstructor
-from app.ras_audit.batch_audit import RasBatchAuditService, _case
+from app.ras_audit.batch_audit import RasBatchAuditResult, RasBatchAuditService, _case
 from app.ras_audit.candidate_detection import (
     RasCandidateAssessment,
     RasCandidateDetectionReport,
@@ -43,6 +43,7 @@ def test_persists_all_candidates_without_inventing_legal_facts(
 
     result = service.persist(
         source_sha256="a" * 64,
+        sheet_name="GL",
         detection=RasCandidateDetectionReport(
             candidates=(
                 _candidate("entry-1"),
@@ -62,9 +63,14 @@ def test_persists_all_candidates_without_inventing_legal_facts(
     assert result.potential_count == 1
     assert result.indeterminate_count == 1
     assert snapshot.fact_context["user_fact_values_applied"] is False
+    assert snapshot.fact_context["sheet_name"] == "GL"
     assert all(
         "legal_facts_per_candidate"
         in cast(list[object], case.payload["missing_facts"])
+        for case in snapshot.cases
+    )
+    assert all(
+        case.payload["workflow_state"] == "awaiting_facts"
         for case in snapshot.cases
     )
 
@@ -97,9 +103,38 @@ def test_potential_related_ras_is_not_persisted_as_confirmed_amount() -> None:
     )
 
 
-def test_golden_batch_has_full_candidate_recall_and_no_firm_tax_finding(
-    tmp_path: Path,
-) -> None:
+def test_batch_retry_is_idempotent() -> None:
+    repository = SqlAlchemyRasAuditRepository(_memory_session_factory())
+    service = RasBatchAuditService(
+        repository,
+        now=lambda: datetime(2026, 8, 4, tzinfo=UTC),
+    )
+    def persist() -> RasBatchAuditResult:
+        return service.persist(
+            source_sha256="a" * 64,
+            sheet_name="GL",
+            detection=RasCandidateDetectionReport(
+                candidates=(_candidate("entry-1"),),
+                evaluated_piece_count=1,
+                excluded_piece_count=0,
+            ),
+            counterparts=RasCounterpartReport(
+                assessments=(_counterpart("entry-1"),)
+            ),
+            reference_versions=("mapping-v1", "signals-v1"),
+            source_scope_complete=True,
+            session_id="session-1",
+            file_id="file-1",
+        )
+
+    first = persist()
+    retry = persist()
+
+    assert retry.audit_id == first.audit_id
+    assert len(repository.list_events(first.audit_id)) == 1
+
+
+def test_golden_batch_has_full_candidate_recall_and_no_firm_tax_finding() -> None:
     dataset = load_golden_dataset(FIXTURES / "golden")
     entries = tuple(
         entry for scenario in dataset.scenarios for entry in scenario.entries
@@ -124,10 +159,11 @@ def test_golden_batch_has_full_candidate_recall_and_no_firm_tax_finding(
         reconstruction=reconstruction,
         source_scope_complete=True,
     )
-    repository = SqlAlchemyRasAuditRepository(_session_factory(tmp_path))
+    repository = SqlAlchemyRasAuditRepository(_memory_session_factory())
 
     result = RasBatchAuditService(repository).persist(
         source_sha256="a" * 64,
+        sheet_name="GL",
         detection=detection,
         counterparts=counterparts,
         reference_versions=("golden-v1",),
@@ -187,5 +223,11 @@ def _counterpart(candidate_id: str) -> RasCounterpartAssessment:
 
 def _session_factory(tmp_path: Path) -> sessionmaker[Session]:
     engine = create_database_engine(f"sqlite:///{tmp_path / 'batch.db'}")
+    Base.metadata.create_all(engine)
+    return create_session_factory(engine)
+
+
+def _memory_session_factory() -> sessionmaker[Session]:
+    engine = create_database_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     return create_session_factory(engine)

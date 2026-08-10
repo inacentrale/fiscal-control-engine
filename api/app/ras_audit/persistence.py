@@ -145,6 +145,27 @@ class SqlAlchemyRasAuditRepository:
                 file_id=audit.file_id,
             )
 
+    def find_equivalent(self, snapshot: RasAuditSnapshot) -> RasAuditSnapshot | None:
+        _validate_snapshot(snapshot)
+        with self._session_factory() as session:
+            audit_ids = tuple(
+                session.scalars(
+                    select(RasAuditRunModel.audit_id).where(
+                        RasAuditRunModel.parent_audit_id
+                        == snapshot.parent_audit_id,
+                        RasAuditRunModel.session_id == snapshot.session_id,
+                        RasAuditRunModel.file_id == snapshot.file_id,
+                        RasAuditRunModel.source_sha256 == snapshot.source_sha256,
+                        RasAuditRunModel.status == snapshot.status,
+                    )
+                ).all()
+            )
+        for audit_id in audit_ids:
+            existing = self.get(audit_id)
+            if existing is not None and _same_audit_content(existing, snapshot):
+                return existing
+        return None
+
     def append_event(
         self,
         audit_id: str,
@@ -211,6 +232,22 @@ def _validate_snapshot(snapshot: RasAuditSnapshot) -> None:
     candidate_ids = tuple(case.candidate_id for case in snapshot.cases)
     if len(set(candidate_ids)) != len(candidate_ids):
         raise ValueError("duplicate RAS audit candidate")
+
+
+def _same_audit_content(
+    left: RasAuditSnapshot,
+    right: RasAuditSnapshot,
+) -> bool:
+    return (
+        left.parent_audit_id == right.parent_audit_id
+        and left.session_id == right.session_id
+        and left.file_id == right.file_id
+        and left.source_sha256 == right.source_sha256
+        and left.status == right.status
+        and left.reference_versions == right.reference_versions
+        and left.fact_context == right.fact_context
+        and left.cases == right.cases
+    )
 
 
 def _as_utc(value: datetime) -> datetime:

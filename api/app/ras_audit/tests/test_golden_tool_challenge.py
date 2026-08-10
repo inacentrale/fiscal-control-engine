@@ -1,11 +1,14 @@
 from collections import Counter
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import cast
 
 import pandas as pd
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from app.database import Base, create_database_engine, create_session_factory
+from app.database import Base, create_session_factory
 from app.excel_agent.excel_tools import ExcelAgentTools
 from app.excel_agent.tool_executor import ExcelToolExecutor
 from app.excel_agent.tool_registry import create_excel_tool_registry
@@ -21,16 +24,16 @@ from app.ras_audit.persistence import SqlAlchemyRasAuditRepository
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def test_accounting_tools_reconcile_to_golden_workbook(tmp_path: Path) -> None:
+def test_accounting_tools_reconcile_to_golden_workbook() -> None:
     dataset = load_golden_dataset(FIXTURES / "golden")
     expected_candidate_count = sum(
         scenario.expected_candidate_signal for scenario in dataset.scenarios
     )
-    workbook_path = _write_golden_workbook(tmp_path)
-    repository = SqlAlchemyRasAuditRepository(_session_factory(tmp_path))
+    workbook_path = _write_golden_workbook()
+    repository = SqlAlchemyRasAuditRepository(_session_factory())
     attestor = RasFactContextAttestor("golden-signing-key-with-at-least-32-bytes")
     executor = ExcelToolExecutor(
-        tools=ExcelAgentTools(allowed_root=tmp_path),
+        tools=ExcelAgentTools(allowed_root=workbook_path.parent),
         registry=create_excel_tool_registry(),
         ras_ledger_account_mappings=load_ras_ledger_account_mappings(
             FIXTURES / "account-mapping/valid.csv"
@@ -39,34 +42,37 @@ def test_accounting_tools_reconcile_to_golden_workbook(tmp_path: Path) -> None:
         ras_audit_repository=repository,
     )
 
-    normalized = _execute(executor, "normalize_gl", workbook_path)
-    readiness = _execute(executor, "assess_gl_readiness", workbook_path)
-    reconstructed = _execute(
-        executor,
-        "reconstruct_accounting_entry",
-        workbook_path,
-    )
-    candidates = _execute(executor, "detect_ras_candidates", workbook_path)
-    counterparts = _execute(executor, "find_ras_counterpart", workbook_path)
-    token = attestor.issue(
-        message="Audit RAS du jeu d'or synthetique.",
-        extraction=RasFactExtraction((), (), ()),
-        session_id="golden-session",
-        file_id="golden-file",
-    )
-    batch = _execute(
-        executor,
-        "run_ras_audit_batch",
-        workbook_path,
-        fact_token=token,
-    )
-    report = executor.execute(
-        ToolCall(
-            name="generate_ras_audit_report",
-            arguments={"audit_id": cast(str, batch["audit_id"])},
-        ),
-        ras_fact_context_token=token,
-    )
+    try:
+        normalized = _execute(executor, "normalize_gl", workbook_path)
+        readiness = _execute(executor, "assess_gl_readiness", workbook_path)
+        reconstructed = _execute(
+            executor,
+            "reconstruct_accounting_entry",
+            workbook_path,
+        )
+        candidates = _execute(executor, "detect_ras_candidates", workbook_path)
+        counterparts = _execute(executor, "find_ras_counterpart", workbook_path)
+        token = attestor.issue(
+            message="Audit RAS du jeu d'or synthetique.",
+            extraction=RasFactExtraction((), (), ()),
+            session_id="golden-session",
+            file_id="golden-file",
+        )
+        batch = _execute(
+            executor,
+            "run_ras_audit_batch",
+            workbook_path,
+            fact_token=token,
+        )
+        report = executor.execute(
+            ToolCall(
+                name="generate_ras_audit_report",
+                arguments={"audit_id": cast(str, batch["audit_id"])},
+            ),
+            ras_fact_context_token=token,
+        )
+    finally:
+        workbook_path.unlink(missing_ok=True)
 
     assert normalized["row_count"] == 26
     assert normalized["normalized_count"] == 26
@@ -130,7 +136,7 @@ def _execute(
     return result.output
 
 
-def _write_golden_workbook(tmp_path: Path) -> Path:
+def _write_golden_workbook() -> Path:
     dataset = load_golden_dataset(FIXTURES / "golden")
     rows = []
     for scenario in dataset.scenarios:
@@ -152,13 +158,22 @@ def _write_golden_workbook(tmp_path: Path) -> Path:
                     "Devise du document": entry.currency,
                 }
             )
-    workbook_path = tmp_path / "golden-ras-audit.xlsx"
+    with NamedTemporaryFile(
+        suffix="-golden-ras-audit.xlsx",
+        dir=Path.cwd(),
+        delete=False,
+    ) as temporary_file:
+        workbook_path = Path(temporary_file.name)
     with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
         pd.DataFrame(rows).to_excel(writer, sheet_name="GL", index=False)
     return workbook_path
 
 
-def _session_factory(tmp_path: Path) -> sessionmaker[Session]:
-    engine = create_database_engine(f"sqlite:///{tmp_path / 'golden-tools.db'}")
+def _session_factory() -> sessionmaker[Session]:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(engine)
     return create_session_factory(engine)

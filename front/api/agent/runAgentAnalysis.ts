@@ -8,6 +8,12 @@ import type {
   AgentRunStreamMessage,
 } from "./types";
 
+export const AGENT_STREAM_TIMEOUT_MS = 90_000;
+
+export const isAgentStreamTimeoutError = (error: unknown): boolean =>
+  error instanceof DOMException &&
+  (error.name === "TimeoutError" || error.name === "AbortError");
+
 export const runAgentPreAnalysis = (
   sessionId: string,
   fileId: string,
@@ -63,6 +69,7 @@ export const runAgentChatStream = async (
     },
     credentials: "include",
     body: JSON.stringify(buildAgentRunPayload(request)),
+    signal: AbortSignal.timeout(AGENT_STREAM_TIMEOUT_MS),
   });
 
   if (!response.ok) {

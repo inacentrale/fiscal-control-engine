@@ -86,6 +86,10 @@ export default function AnalyticsColumn() {
         activeFile?.file_id &&
         dashboard?.sheet_name
     ),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
   });
   const secondaryCharts = useMemo(
     () =>

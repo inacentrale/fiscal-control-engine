@@ -8,6 +8,7 @@ import {
 } from "@/api/agent/sidebar";
 import { uploadAgentFile } from "@/api/agent/uploadAgentFile";
 import {
+  isAgentStreamTimeoutError,
   runAgentChat,
   runAgentChatStream,
   runAgentPreAnalysis,
@@ -332,10 +333,10 @@ export const useAgentFileUpload = () => {
           },
         }
       );
-      completeAssistantMessage(assistantMessageId, response);
+      completeAssistantMessage(assistantMessageId, response, sessionId, fileId);
       invalidateSidebarData();
-    } catch {
-      if (!hasStreamProgress) {
+    } catch (error) {
+      if (!hasStreamProgress && !isAgentStreamTimeoutError(error)) {
         try {
           const fallbackResponse = await runAgentChat({
             message,
@@ -343,7 +344,12 @@ export const useAgentFileUpload = () => {
             fileId,
             sheetName,
           });
-          completeAssistantMessage(assistantMessageId, fallbackResponse);
+          completeAssistantMessage(
+            assistantMessageId,
+            fallbackResponse,
+            sessionId,
+            fileId
+          );
           invalidateSidebarData();
           return;
         } catch {
@@ -388,7 +394,9 @@ export const useAgentFileUpload = () => {
 
   function completeAssistantMessage(
     assistantMessageId: string,
-    response: AgentRunResponse
+    response: AgentRunResponse,
+    sessionId?: string,
+    fileId?: string
   ) {
     setMessages((currentMessages) =>
       currentMessages.map((message) =>
@@ -398,7 +406,11 @@ export const useAgentFileUpload = () => {
               content: response.answer,
               status: "done",
               ledgerQuery: extractLedgerQueryResult(response),
-              rasAuditReport: extractRasAuditReportSummary(response),
+              rasAuditReport: extractRasAuditReportSummary(
+                response,
+                sessionId,
+                fileId
+              ),
               executionEvents: response.execution_events,
               providerName: response.provider_name,
               modelName: response.model_name,

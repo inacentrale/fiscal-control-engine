@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import re
 import sys
+from os import walk
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
 SKIPPED_DIRECTORIES = {
     ".git",
+    ".local",
     ".mypy_cache",
     ".next",
     ".pytest_cache",
@@ -87,9 +89,17 @@ def _iter_files(paths: Iterable[Path]) -> Iterable[Path]:
             continue
         if not resolved_path.is_dir():
             continue
-        for child in resolved_path.rglob("*"):
-            if child.is_file() and _should_scan_file(child):
-                yield child
+        for directory, child_directories, filenames in walk(
+            resolved_path,
+            onerror=lambda _: None,
+        ):
+            child_directories[:] = [
+                name for name in child_directories if name not in SKIPPED_DIRECTORIES
+            ]
+            for filename in filenames:
+                child = Path(directory, filename)
+                if _should_scan_file(child):
+                    yield child
 
 
 def _should_scan_file(path: Path) -> bool:

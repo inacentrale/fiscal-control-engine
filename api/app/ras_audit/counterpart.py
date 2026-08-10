@@ -10,7 +10,10 @@ from app.ras_audit.account_mapping import (
     best_account_mapping,
     has_applicable_ras_payable_mapping,
 )
-from app.ras_audit.accounting_entry import AccountingEntryReconstructionReport
+from app.ras_audit.accounting_entry import (
+    AccountingEntryReconstructionReport,
+    ReconstructedAccountingEntry,
+)
 from app.ras_audit.domain import CanonicalLedgerEntry
 
 
@@ -56,6 +59,9 @@ class RasCounterpartToolReport:
     source_scope_policy_version: str
     report: RasCounterpartReport
     detected_candidate_piece_count: int | None = None
+    selector: dict[str, str | int | None] | None = None
+    selected_entry: ReconstructedAccountingEntry | None = None
+    selected_lines: tuple[CanonicalLedgerEntry, ...] = ()
 
 
 class RasCounterpartFinder:

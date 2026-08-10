@@ -56,7 +56,12 @@ def _match_partner(
             and _normalized_kind(item.identifier_type) == identifier_type
         )
         if exact:
-            return _candidate_match(evidence.reference_id, exact, "identifier", exact=True)
+            return _candidate_match(
+                evidence.reference_id,
+                exact,
+                "identifier",
+                exact=True,
+            )
     if identifier is not None:
         same_value = _unique_reference_ids(
             item
