@@ -1886,6 +1886,10 @@ def _balance_reconciliation_answer(
         )
         return "\n".join(lines)
     if len(currency_names) <= 1:
+        balance_amount, balance_side = _business_balance(
+            reconciliation,
+            display_currency,
+        )
         lines.extend(
             (
                 "- Somme brute : "
@@ -1894,8 +1898,8 @@ def _balance_reconciliation_answer(
                 f"{_amount_value(reconciliation, 'debit_total', display_currency)}",
                 "- Total crédit : "
                 f"{_amount_value(reconciliation, 'credit_total', display_currency)}",
-                "- **Solde (débit − crédit) : "
-                f"{_amount_value(reconciliation, 'balance', display_currency)}**",
+                f"- **Solde comptable : {balance_amount}"
+                f" ({balance_side})**",
             ),
         )
     else:
@@ -1908,7 +1912,8 @@ def _balance_reconciliation_answer(
                 "",
                 "**Rapprochement par devise**",
                 "",
-                "| Devise | Brut | Débit | Crédit | Solde | Utilisées | Exclues |",
+                "| Devise | Brut | Débit | Crédit | Solde comptable "
+                "| Utilisées | Exclues |",
                 "|---|---:|---:|---:|---:|---:|---:|",
             ),
         )
@@ -1916,11 +1921,12 @@ def _balance_reconciliation_answer(
             if not isinstance(raw_totals, dict):
                 continue
             raw_sum = _amount_value(raw_totals, "raw_amount_sum", currency)
+            balance_amount, balance_side = _business_balance(raw_totals, currency)
             lines.append(
                 f"| {currency} | {raw_sum} "
                 f"| {_amount_value(raw_totals, 'debit_total', currency)} "
                 f"| {_amount_value(raw_totals, 'credit_total', currency)} "
-                f"| {_amount_value(raw_totals, 'balance', currency)} "
+                f"| {balance_amount} ({balance_side}) "
                 f"| {_integer_value(raw_totals, 'used_entry_count')} "
                 f"| {_integer_value(raw_totals, 'excluded_entry_count')} |",
             )
@@ -1979,6 +1985,17 @@ def _amount_value(
         return "0"
     formatted = f"{value:,.2f}".replace(",", " ")
     return f"{formatted} {currency}" if currency else formatted
+
+
+def _business_balance(
+    values: dict[str, object],
+    currency: str | None = None,
+) -> tuple[str, str]:
+    raw_balance = values.get("balance", 0)
+    balance = float(raw_balance) if isinstance(raw_balance, int | float) else 0.0
+    side = "créditeur" if balance < 0 else "débiteur" if balance > 0 else "équilibré"
+    display_values: dict[str, object] = {"balance": abs(balance)}
+    return _amount_value(display_values, "balance", currency), side
 
 
 def _filter_warning_lines(raw_warnings: object) -> list[str]:
@@ -2382,6 +2399,9 @@ def _final_model_request(
                     "Ne parle pas des tools, de leur choix, ni des outils "
                     "disponibles. Reste direct: une reponse courte suffit si "
                     "la demande est simple. "
+                    "Pour un solde comptable, n'affiche jamais le solde "
+                    "technique signe. Presente uniquement sa valeur absolue "
+                    "avec le sens debiteur, crediteur ou equilibre. "
                     "Ne revele pas de donnees sensibles."
                 ),
             ),
@@ -2491,5 +2511,30 @@ def _compact_tool_output(tool_result: ToolExecutionResult) -> dict[str, object]:
         "decision_status",
     ):
         if key in output:
-            compact_output[key] = output[key]
+            value = output[key]
+            if key == "balance_interpretation" and isinstance(value, dict):
+                value = {
+                    item_key: item_value
+                    for item_key, item_value in value.items()
+                    if item_key != "technical_balance"
+                }
+            if key in {
+                "metrics",
+                "metrics_by_currency",
+                "balance_reconciliation",
+            } and isinstance(value, dict):
+                value = _without_signed_balances(value)
+            compact_output[key] = value
     return compact_output
+
+
+def _without_signed_balances(value: dict[str, object]) -> dict[str, object]:
+    sanitized: dict[str, object] = {}
+    for key, item in value.items():
+        if key == "balance":
+            continue
+        if isinstance(item, dict):
+            sanitized[key] = _without_signed_balances(item)
+        else:
+            sanitized[key] = item
+    return sanitized

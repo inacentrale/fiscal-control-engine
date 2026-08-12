@@ -59,5 +59,21 @@ def test_an_actual_calculated_zero_balance_remains_visible() -> None:
     )
 
     assert answer is not None
-    assert "Solde (débit" in answer
+    assert "Solde comptable" in answer
     assert "0.00" in answer
+
+
+def test_credit_balance_is_presented_without_technical_negative_sign() -> None:
+    answer = _balance_reconciliation_answer(
+        _result(
+            entry_count=98,
+            used_entry_count=98,
+            excluded_entry_count=0,
+            balance=-2_754_681_740,
+        )
+    )
+
+    assert answer is not None
+    assert "2 754 681 740.00 (créditeur)" in answer
+    assert "-2 754 681 740" not in answer
+    assert "Solde technique" not in answer

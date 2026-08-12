@@ -789,8 +789,6 @@ function ExpandedLedgerView({
     findChart(dashboard, "amount_by_account_class"),
     findChart(dashboard, "debit_credit_by_account_class"),
     findChart(dashboard, "debit_credit_by_period"),
-    findChart(dashboard, "cumulative_resources_by_period"),
-    findChart(dashboard, "cumulative_uses_by_period"),
   ].filter((chart): chart is AgentDashboardChart => Boolean(chart));
   const orderedCharts = [primaryChart, ...priorityCharts].filter(
     (chart): chart is AgentDashboardChart => Boolean(chart)

@@ -358,6 +358,44 @@ def test_ras_audit_intent_is_routed_through_readiness_before_batch() -> None:
     ]
 
 
+def test_balance_output_hides_every_signed_technical_balance() -> None:
+    compact = _compact_tool_output(
+        ToolExecutionResult(
+            tool_name="calculate_ledger_metrics",
+            ok=True,
+            output={
+                "metrics": {"balance": -2_754_681_740, "count": 98},
+                "metrics_by_currency": {
+                    "XOF": {"balance": -2_754_681_740, "count": 98}
+                },
+                "balance_interpretation": {
+                    "technical_balance": -2_754_681_740,
+                    "natural_balance": 2_754_681_740,
+                    "balance_side": "credit",
+                    "normal_side": "credit",
+                },
+                "balance_reconciliation": {
+                    "balance": -2_754_681_740,
+                    "by_currency": {
+                        "XOF": {"balance": -2_754_681_740, "entry_count": 98}
+                    },
+                },
+            },
+        )
+    )
+
+    assert compact["metrics"] == {"count": 98}
+    assert compact["metrics_by_currency"] == {"XOF": {"count": 98}}
+    assert compact["balance_interpretation"] == {
+        "natural_balance": 2_754_681_740,
+        "balance_side": "credit",
+        "normal_side": "credit",
+    }
+    assert compact["balance_reconciliation"] == {
+        "by_currency": {"XOF": {"entry_count": 98}}
+    }
+
+
 def test_candidate_detection_emits_safe_detected_workflow_state() -> None:
     event = _ras_workflow_event(
         ToolExecutionResult(

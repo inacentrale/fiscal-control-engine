@@ -24,13 +24,13 @@ export default function AISidebarProfile({ className }: AISidebarProfileProps) {
     <div className={cn("relative", className)}>
       <button
         aria-label="Profil"
-        className="flex !w-full cursor-pointer items-center justify-between gap-3 rounded-full border border-gray-200 bg-white py-2.5 pl-2.5 pr-4 shadow-soft transition-all"
+        className="flex !w-full cursor-pointer items-center justify-between gap-2.5 rounded-full border border-gray-200 bg-white py-2 pl-2 pr-3 shadow-soft transition-all"
         onClick={() => setIsOpen((current) => !current)}
         type="button"
       >
-        <div className="flex min-w-0 items-center gap-3.5">
+        <div className="flex min-w-0 items-center gap-3">
           <UserAvatar
-            className="!m-0 h-[56px] w-[56px] !p-0"
+            className="!m-0 h-[44px] w-[44px] !p-0"
             forceRound
             size="xl"
             user={{
@@ -39,11 +39,11 @@ export default function AISidebarProfile({ className }: AISidebarProfileProps) {
             }}
           />
 
-          <div className="flex min-w-0 flex-col !items-start gap-1 whitespace-nowrap">
-            <p className="max-w-[160px] truncate text-[16px] font-semibold leading-[1.05] text-[#102734]">
+          <div className="flex min-w-0 flex-col !items-start gap-0.5 whitespace-nowrap">
+            <p className="max-w-[150px] truncate text-[14px] font-semibold leading-[1.15] text-[#102734]">
               {name}
             </p>
-            <span className="truncate text-[15px] leading-[1.05] text-[#667781]">
+            <span className="max-w-[150px] truncate text-[13px] leading-[1.15] text-[#667781]">
               {role}
             </span>
           </div>
@@ -52,7 +52,7 @@ export default function AISidebarProfile({ className }: AISidebarProfileProps) {
         <div className="rounded-full p-1 transition-colors">
           <ArrowDownIcon
             className={cn(
-              "h-[20px] w-[20px] text-[#102734] transition-transform",
+              "h-[18px] w-[18px] text-[#102734] transition-transform",
               isOpen ? "rotate-180" : "rotate-0",
             )}
           />
