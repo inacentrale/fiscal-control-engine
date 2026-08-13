@@ -23,7 +23,7 @@ services:
       db:
         condition: service_healthy
     env_file:
-      - ./api/.env
+      - ./env
     environment:
       UV_PROJECT_ENVIRONMENT: /opt/venv
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://harmonizer:harmonizer@db:5432/harmonizer}

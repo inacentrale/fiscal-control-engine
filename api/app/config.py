@@ -1,8 +1,12 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+API_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = API_ROOT.parent
 
 
 class Settings(BaseSettings):
@@ -108,7 +112,11 @@ class Settings(BaseSettings):
         return value
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(
+            API_ROOT / ".env",
+            PROJECT_ROOT / ".env",
+            PROJECT_ROOT / "env",
+        ),
         env_file_encoding="utf-8",
         extra="ignore",
     )
