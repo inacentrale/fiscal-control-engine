@@ -481,6 +481,53 @@ def test_agent_session_context_returns_active_file_dashboard(tmp_path: Path) -> 
     assert payload["dashboard"]["quality"]["issue_count"] >= 0
 
 
+def test_agent_session_context_uses_first_dashboard_compatible_sheet(
+    tmp_path: Path,
+) -> None:
+    app = create_app()
+    source_path = write_minified_grand_livre(tmp_path / "sources")
+    workbook = load_workbook(source_path)
+    intro_sheet = workbook.create_sheet("Intro", 0)
+    intro_sheet.append(("Titre", "Valeur"))
+    intro_sheet.append(("Fichier", "Grand Livre"))
+    multi_sheet_path = tmp_path / "sources" / "grand_livre_multi_sheet.xlsx"
+    workbook.save(multi_sheet_path)
+
+    async def override_settings() -> Settings:
+        return Settings(
+            agent_file_storage_root_path=str(tmp_path / "sessions"),
+            excel_agent_allowed_root_path=str(tmp_path / "docs"),
+            agent_file_max_upload_bytes=200_000,
+            database_url=f"sqlite:///{tmp_path / 'agent.db'}",
+        )
+
+    app.dependency_overrides[get_api_settings] = override_settings
+
+    upload_response = _post_files(
+        app,
+        "/api/agent/files",
+        files={
+            "file": (
+                "grand_livre_multi_sheet.xlsx",
+                multi_sheet_path.read_bytes(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+    upload_payload = upload_response.json()
+
+    response = _get(
+        app,
+        f"/api/agent/sessions/{upload_payload['session_id']}/context",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_file"]["sheet_names"] == ["Intro", "Grand Livre"]
+    assert payload["dashboard"]["sheet_name"] == "Grand Livre"
+    assert payload["dashboard"]["summary"]["row_count"] == 4
+
+
 def test_agent_session_context_returns_rich_dashboard_charts(tmp_path: Path) -> None:
     app = create_app()
     source_path = _reference_excel_path()

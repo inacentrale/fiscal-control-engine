@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -78,6 +78,7 @@ from app.schemas.agent import (
     AgentConversationSummaryResponse,
     AgentErrorDetail,
     AgentErrorResponse,
+    AgentFileDashboardResponse,
     AgentFileListResponse,
     AgentFileSummaryResponse,
     AgentFileUploadResponse,
@@ -543,11 +544,11 @@ async def get_agent_session_context(
                     public_message="Le fichier Excel actif n'a aucune feuille lisible.",
                 ),
             )
-        dashboard = build_file_dashboard(
+        dashboard = _build_first_available_dashboard(
             settings=settings,
             file_id=active_file.file_id,
             file_path=stored_file.path,
-            sheet_name=active_file.sheet_names[0],
+            sheet_names=active_file.sheet_names,
         )
     except AgentFileExpiredError:
         return _to_error_response(_file_expired_error())
@@ -570,6 +571,29 @@ async def get_agent_session_context(
             _to_session_context_event_response(event) for event in last_events
         ],
     )
+
+
+def _build_first_available_dashboard(
+    *,
+    settings: Settings,
+    file_id: str,
+    file_path: Path,
+    sheet_names: Sequence[str],
+) -> AgentFileDashboardResponse:
+    last_error: ValueError | None = None
+    for sheet_name in sheet_names:
+        try:
+            return build_file_dashboard(
+                settings=settings,
+                file_id=file_id,
+                file_path=file_path,
+                sheet_name=sheet_name,
+            )
+        except ValueError as error:
+            last_error = error
+    if last_error is not None:
+        raise last_error
+    raise ValueError("No dashboard-compatible sheet found.")
 
 
 def _ras_audit_report_response(
