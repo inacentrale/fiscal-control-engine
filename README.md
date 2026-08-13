@@ -102,6 +102,7 @@ PYTHONPATH=. python3 -m mypy app tests scripts
 - [Vue projet](docs/project-overview.md)
 - [Fonctionnalites et tools RAS](docs/FEATURES.md)
 - [Etat actuel du projet](docs/current-project-state.md)
+- [Deploiement VPS](docs/deployment-vps.md)
 - [Sources Excel](docs/excel-sources.md)
 - [Questions ouvertes](docs/open-questions.md)
 - [Plan API](api/todo.md)

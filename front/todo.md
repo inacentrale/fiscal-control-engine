@@ -93,6 +93,12 @@ Checklist operationnelle du chantier front. Les cases seront cochees au fur et a
 - [x] Ajouter la comparaison RAS par periode: pieces evaluees, candidats et taux candidat.
 - [x] Organiser la troisieme colonne en vue principale, KPI compacts, onglets metier et cartes animees.
 - [x] Remplacer la card `Montant` par des cards de solde metier par nature de compte, avec detail deroulant: devise, ecritures, comptes, utilisees, exclues, debit et credit.
+- [x] Ajouter le Dockerfile front production en mode Next.js standalone et le
+  valider via `docker compose -f docker-compose.prod.yml build front`.
+- [x] Corriger l'audit npm front: `npm audit --prefix front --audit-level=high`
+  retourne 0 vulnerabilite.
+- [ ] Brancher le domaine public et le reverse proxy vers le front prod expose
+  localement sur `127.0.0.1:3009`.
 - [ ] Afficher les resultats `query_ledger_entries` depuis le payload structure, pas depuis le texte LLM.
 - [ ] Afficher un resume court pour les ecritures: total trouve, page affichee, taille page.
 - [ ] Afficher les ecritures dans un tableau base sur `returned_columns` et `entries`.

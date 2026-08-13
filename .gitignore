@@ -1,4 +1,10 @@
 .env
+.env.*
+api/env
+!.env.example
+!.env.*.example
+!**/.env.example
+!**/.env.*.example
 node_modules/
 .local/
 __pycache__/

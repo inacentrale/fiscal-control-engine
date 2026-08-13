@@ -19,6 +19,12 @@
     "front:test": "npm run test --prefix front",
     "front:typecheck": "npm run typecheck --prefix front",
     "quality": "npm run api:lint && npm run api:typecheck && npm run api:test && npm run front:lint && npm run front:typecheck && npm run front:test && npm run front:build",
+    "prod:build": "docker compose --env-file .env.prod -f docker-compose.prod.yml build",
+    "prod:up": "docker compose --env-file .env.prod -f docker-compose.prod.yml up -d db api front",
+    "prod:down": "docker compose --env-file .env.prod -f docker-compose.prod.yml down",
+    "prod:logs": "docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f --tail=100",
+    "prod:migrate": "docker compose --env-file .env.prod -f docker-compose.prod.yml --profile migrate run --rm migrate",
+    "prod:ps": "docker compose --env-file .env.prod -f docker-compose.prod.yml ps",
     "compose:down": "docker compose down",
     "compose:up": "docker compose up",
     "secrets:check": "git ls-files -z | xargs -0 python3 api/scripts/secret_scanner.py"

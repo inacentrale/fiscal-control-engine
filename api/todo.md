@@ -226,7 +226,13 @@ robuste et avant d'adapter le parcours front RAS.
 - [x] Ajouter une CI GitHub Actions executant les controles backend et frontend:
   secrets, Ruff, mypy, pytest, compilation, build Docker, lint, typecheck,
   Vitest et build Next.js.
-- [ ] Definir une strategie CD apres validation de l'environnement cible.
+- [x] Preparer le socle Docker de deploiement VPS: `docker-compose.prod.yml`,
+  image API production, service Alembic `migrate`, `.env.prod.example`,
+  scripts `prod:*` et documentation `docs/deployment-vps.md`.
+- [x] Valider le smoke test prod local avec l'env d'exemple: migration Alembic,
+  `GET /api/health`, front sur `3009`, puis nettoyage des volumes de test.
+- [ ] Renseigner les vrais secrets VPS dans `.env.prod`, configurer le domaine
+  et le reverse proxy, puis lancer le deploiement reel de `codex2`.
 - [ ] Executer le smoke test reel du fournisseur `openai-compatible` generique
   lorsqu'il entre dans le perimetre; seuls Gemini et Groq sont prioritaires
   actuellement.

@@ -1,0 +1,136 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fiscal_control}
+      POSTGRES_USER: ${POSTGRES_USER:-fiscal_control}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5435}:5432"
+    volumes:
+      - fiscal_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-fiscal_control} -d ${POSTGRES_DB:-fiscal_control}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./api
+      target: production
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_NAME: ${APP_NAME:-Fiscal Control Engine API}
+      ENVIRONMENT: production
+      API_PREFIX: /api
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-fiscal_control}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-fiscal_control}}
+      EXCEL_AGENT_ALLOWED_ROOT_PATH: /workspace/docs
+      AGENT_FILE_STORAGE_ROOT_PATH: /workspace/.local/agent-files
+      AGENT_FILE_TTL_SECONDS: ${AGENT_FILE_TTL_SECONDS:-86400}
+      AGENT_FILE_MAX_UPLOAD_BYTES: ${AGENT_FILE_MAX_UPLOAD_BYTES:-20000000}
+      AGENT_MAX_ANSWER_CHARACTERS: ${AGENT_MAX_ANSWER_CHARACTERS:-4000}
+      RAS_CLASSIFICATION_RULES_PATH: /workspace/docs/reference/ras-classification-rules.csv
+      POSTING_KEY_RULES_PATH: /workspace/docs/reference/sap-posting-key-rules.csv
+      ACCOUNT_BALANCE_RULES_PATH: /workspace/docs/reference/syscohada-account-balance-rules.csv
+      RAS_GL_COLUMN_ALIASES_PATH: /workspace/docs/reference/ras-gl-column-aliases.csv
+      RAS_CANDIDATE_SIGNALS_PATH: /workspace/docs/reference/ras-candidate-signals.csv
+      RAS_SEMANTIC_POLICY_PATH: /workspace/docs/reference/ras-semantic-classification-policy.csv
+      RAS_SEMANTIC_EMBEDDING_PROVIDER: ${RAS_SEMANTIC_EMBEDDING_PROVIDER:-disabled}
+      RAS_SEMANTIC_EMBEDDING_MODEL_NAME: ${RAS_SEMANTIC_EMBEDDING_MODEL_NAME:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+      RAS_LEGAL_RULES_PATH: /workspace/docs/reference/bf-ras-legal-rules.csv
+      RAS_LEGAL_REPOSITORY_ROOT_PATH: /workspace
+      RAS_TAX_EVENT_RULES_PATH: /workspace/docs/reference/bf-ras-tax-event-rules.csv
+      RAS_CALCULATION_PARAMETERS_PATH: /workspace/docs/reference/bf-ras-calculation-parameters.csv
+      RAS_ACCOUNTING_ASSESSMENT_POLICY_PATH: /workspace/docs/reference/ras-accounting-assessment-policy.csv
+      RAS_USER_FACT_PATTERNS_PATH: /workspace/docs/reference/ras-user-fact-patterns.csv
+      RAS_FACT_CONTEXT_SIGNING_KEY: ${RAS_FACT_CONTEXT_SIGNING_KEY:?RAS_FACT_CONTEXT_SIGNING_KEY is required}
+      RAS_LEDGER_ACCOUNT_MAPPING_PATH: /workspace/docs/reference/ras-ledger-account-mapping.organization.csv
+      RAS_DEFAULT_COMPANY_CODE: ${RAS_DEFAULT_COMPANY_CODE:-}
+      RAS_BATCH_MAX_CANDIDATES: ${RAS_BATCH_MAX_CANDIDATES:-5000}
+      TAX_RAG_SOURCE_ROOT_PATH: /workspace/docs/source-corpus/fiscal
+      VAT_VALIDATION_RULES_PATH: /workspace/docs/reference/bf-vat-validation-rules.csv
+      WITHHOLDING_VALIDATION_RULES_PATH: /workspace/docs/reference/bf-withholding-validation-rules.csv
+      WITHHOLDING_DEADLINE_RULES_PATH: /workspace/docs/reference/bf-withholding-deadline-rules.csv
+      PAYROLL_TAX_VALIDATION_RULES_PATH: /workspace/docs/reference/bf-iuts-validation-rules.csv
+      CORPORATE_INCOME_TAX_VALIDATION_RULES_PATH: /workspace/docs/reference/bf-is-validation-rules.csv
+      TAX_ASSURANCE_POLICY_PATH: /workspace/docs/reference/bf-tax-assurance-policy.csv
+      RAG_EMBEDDING_PROVIDER: ${RAG_EMBEDDING_PROVIDER:-disabled}
+      RAG_EMBEDDING_MODEL_NAME: ${RAG_EMBEDDING_MODEL_NAME:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+      LLM_PROVIDER_CHAIN: ${LLM_PROVIDER_CHAIN:-internal:controlled-response}
+      LLM_OPENAI_COMPATIBLE_API_KEY: ${LLM_OPENAI_COMPATIBLE_API_KEY:-}
+      LLM_OPENAI_COMPATIBLE_BASE_URL: ${LLM_OPENAI_COMPATIBLE_BASE_URL:-https://api.openai.com/v1}
+      LLM_GEMINI_API_KEY: ${LLM_GEMINI_API_KEY:-}
+      LLM_GEMINI_BASE_URL: ${LLM_GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
+      LLM_GROQ_API_KEY: ${LLM_GROQ_API_KEY:-}
+      LLM_GROQ_BASE_URL: ${LLM_GROQ_BASE_URL:-https://api.groq.com/openai/v1}
+      LLM_DEFAULT_TIMEOUT_SECONDS: ${LLM_DEFAULT_TIMEOUT_SECONDS:-30}
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-1200}
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-8001}:8000"
+    volumes:
+      - ./docs:/workspace/docs:ro
+      - fiscal_agent_files:/workspace/.local/agent-files
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "uv run python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  migrate:
+    build:
+      context: ./api
+      target: migration
+    profiles:
+      - migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-fiscal_control}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-fiscal_control}}
+    command: uv run alembic upgrade head
+
+  front:
+    build:
+      context: ./front
+      target: production
+      args:
+        API_URL: ${API_URL:-http://api:8000}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
+        NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL:?NEXT_PUBLIC_BASE_URL is required}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      API_URL: ${API_URL:-http://api:8000}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
+      NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL:?NEXT_PUBLIC_BASE_URL is required}
+    ports:
+      - "127.0.0.1:${FRONT_HOST_PORT:-3009}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  fiscal_postgres_data:
+  fiscal_agent_files:
