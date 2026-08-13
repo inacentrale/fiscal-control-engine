@@ -1,7 +1,7 @@
 import type { AgentDashboardChart, AgentFileDashboard } from "@/api/agent/types";
 
 export const chartColors = [
-  "#40515C",
+  "#C20831",
   "#7FA6B7",
   "#E36F55",
   "#12A17D",

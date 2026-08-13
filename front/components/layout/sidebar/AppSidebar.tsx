@@ -39,8 +39,8 @@ export default function AppSidebar() {
             className={[
               "flex items-center gap-3 rounded-[12px] px-3.5 py-2.5 text-[14px] font-medium transition",
               isActive
-                ? "bg-[#eef2ff] text-[#3664ff]"
-                : "text-[#40515c] hover:bg-[#f7f9fa]",
+                ? "bg-[#FCECEF] text-[#C20831]"
+                : "text-[#40515c] hover:bg-[#FCECEF]/65 hover:text-[#9E0627]",
             ].join(" ")}
           >
             <Icon className="size-[18px] shrink-0" />

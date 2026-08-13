@@ -48,7 +48,7 @@ export default function RasAuditReportButton({
 
   return (
     <button
-        className="shrink-0 rounded-full bg-[#102734] px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-[#203743] disabled:cursor-not-allowed disabled:opacity-50"
+        className="shrink-0 rounded-full bg-[#C20831] px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-[#9E0627] disabled:cursor-not-allowed disabled:opacity-50"
         disabled={!sessionId || isGenerating}
         onClick={handleClick}
         type="button"

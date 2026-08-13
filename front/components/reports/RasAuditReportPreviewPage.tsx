@@ -84,7 +84,7 @@ export default function RasAuditReportPreviewPage({
             <h2 className="font-semibold text-[#203743]">Aperçu indisponible</h2>
             <p className="mt-2 text-sm text-[#607783]">{state.message}</p>
             <button
-              className="mt-4 rounded-lg bg-[#102734] px-4 py-2 text-sm font-semibold text-white"
+              className="mt-4 rounded-lg bg-[#C20831] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#9E0627]"
               onClick={() => void loadPreview()}
               type="button"
             >
@@ -274,7 +274,7 @@ function DownloadActions({
         <a
           className={
             format === "xlsx"
-              ? "rounded-lg bg-[#102734] px-3 py-2 text-xs font-semibold text-white"
+              ? "rounded-lg bg-[#C20831] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#9E0627]"
               : "rounded-lg border border-[#d7e0e4] bg-white px-3 py-2 text-xs font-semibold text-[#43606d]"
           }
           download

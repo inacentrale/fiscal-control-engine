@@ -113,7 +113,7 @@ export default function AgentPromptCard({
 
 function AgentPromptShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-[40px] border-[6px] border-[#deebf1] bg-[#deebf1] shadow-[0_24px_54px_rgba(86,105,118,0.12)]">
+    <div className="overflow-hidden rounded-[40px] border-[6px] border-[#F7DDE3] bg-[#F7DDE3] shadow-[0_24px_54px_rgba(107,62,99,0.12)]">
       {children}
     </div>
   );
@@ -246,7 +246,7 @@ function AgentPromptInput({
           aria-label="Envoyer"
           disabled={!canSubmit}
           onClick={onSubmit}
-          className="flex size-[46px] shrink-0 cursor-pointer items-center justify-center rounded-full bg-[#40515c] text-white shadow-[0_14px_28px_rgba(64,81,92,0.20)] transition hover:bg-[#34434c] disabled:cursor-default disabled:bg-[#9bacb5] disabled:shadow-none"
+          className="flex size-[46px] shrink-0 cursor-pointer items-center justify-center rounded-full bg-[#C20831] text-white shadow-[0_14px_28px_rgba(194,8,49,0.24)] transition hover:bg-[#9E0627] disabled:cursor-default disabled:bg-[#c7aab2] disabled:shadow-none"
         >
           <ArrowUpIcon className="size-[20px]" />
         </button>

@@ -6,8 +6,8 @@
 @import "./cards.css";
 
 @theme {
-    --color-primary: #3664FF;
-    --color-secondary: #F59E0B;
+    --color-primary: #C20831;
+    --color-secondary: #6B3E63;
     --color-tertiary: #10B981;
     --color-quaternary: #8B5CF6;
     --color-gray-bg: #f7f9fa;
@@ -26,6 +26,12 @@
 
     --secondbar-width-lg: 300px;
     --secondbar-width-xl: 350px;
+
+    --ram-red: #C20831;
+    --ram-red-dark: #9E0627;
+    --ram-red-soft: #FCECEF;
+    --ram-amethyst: #6B3E63;
+    --ram-ink: #26343C;
 }
 
 body {

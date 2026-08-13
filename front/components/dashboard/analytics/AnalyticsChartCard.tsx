@@ -155,7 +155,7 @@ function FiscalComposedChart({
   chart: AgentDashboardChart;
   density: "default" | "modal";
 }) {
-  const colors = ["#40515C", "#7FA6B7", "#E36F55"];
+  const colors = ["#C20831", "#6B3E63", "#7FA6B7"];
   const currency =
     typeof chart.metadata.currency === "string" ? chart.metadata.currency : null;
   const hasBalanceSeries = chart.series.length > 2;

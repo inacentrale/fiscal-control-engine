@@ -24,7 +24,7 @@ export default function AgentRasAuditReportCard({
           </p>
         </div>
         <button
-          className="rounded-lg bg-[#102734] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#203743] disabled:opacity-50"
+          className="rounded-lg bg-[#C20831] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#9E0627] disabled:opacity-50"
           onClick={() =>
             router.push(
               getRasAuditReportPreviewUrl(
